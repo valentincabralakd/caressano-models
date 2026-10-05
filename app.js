@@ -136,6 +136,30 @@ function applyAboutAdminContent(){
 
 
 
+
+function editorializeAbout(){
+  if(!document.body.classList.contains("nosotros-page"))return;
+  const copy=document.querySelector(".nosotros-copy"), photoWrap=document.querySelector(".nosotros-photos");
+  if(!copy)return;
+  const blocks=[...copy.querySelectorAll(".nosotros-block")];
+  const photos=photoWrap?[...photoWrap.querySelectorAll(".nosotros-photo-slot")]:[];
+  const fallback=["hero-people-approved.jpg","hero-portraits-v5.jpg","hero-approved-framed-v5.jpg"];
+  blocks.forEach((block,i)=>{
+    if(i>2)return;
+    const span=block.querySelector(":scope > span"),h=block.querySelector(":scope > h2"),p=block.querySelector(":scope > p");
+    if(!span||!h||!p)return;
+    let c=block.querySelector(".about-editorial-copy");
+    if(!c){c=document.createElement("div");c.className="about-editorial-copy";c.append(span,h,p);block.prepend(c)}
+    let m=block.querySelector(".about-editorial-media");
+    if(!m){m=document.createElement("div");m.className="about-editorial-media";block.append(m)}
+    if(!m.firstElementChild){
+      const photo=photos[i];
+      if(photo)m.append(photo);
+      else{const slot=document.createElement("div");slot.className="nosotros-photo-slot premium-media-slot about-grid-media";slot.style.cssText="--about-w:100%;--about-h:620px;--about-x:50%;--about-y:50%;--about-zoom:100%;--about-fit:cover;--about-filter:none";slot.innerHTML=`<i style="background-image:url('${fallback[i]}')"></i>`;m.append(slot)}
+    }
+  });
+}
+
 // ===== NOVEDADES · ESTILO WE REPRESENT =====
 function applyNews(){
   if(!document.body.classList.contains("v5-home"))return;
@@ -199,7 +223,7 @@ async function applyStoredHeroImage(){
 }
 
 function initPage(){
-  applyVisualAdminSettings(); applyStoredHeroImage(); applyContent(); applyHomeAdminContent();applyNews(); applyModelsCopy(); applyGlobalContact(); applyAboutAdminContent(); applyAboutBanner(); applyPremiumBanner(); renderModels(); observeReveals();
+  applyVisualAdminSettings(); applyStoredHeroImage(); applyContent(); applyHomeAdminContent();applyNews(); applyModelsCopy(); applyGlobalContact(); applyAboutAdminContent(); editorializeAbout(); applyAboutBanner(); applyPremiumBanner(); renderModels(); observeReveals();
   const drawer=document.getElementById("contactDrawer"), openBtn=document.getElementById("contactOpen"), closeBtn=document.getElementById("contactClose"), backdrop=document.getElementById("contactBackdrop");
   const setDrawer=(open)=>{drawer?.classList.toggle("open",open);backdrop?.classList.toggle("open",open);drawer?.setAttribute("aria-hidden",String(!open));};
   openBtn?.addEventListener("click",()=>setDrawer(true)); closeBtn?.addEventListener("click",()=>setDrawer(false)); backdrop?.addEventListener("click",()=>setDrawer(false));
@@ -237,7 +261,7 @@ function initProfile(){
     <div class="profile-copy"><p class="kicker accent-text">${m.category}</p><h1>${m.name}</h1>${modelStatsMarkup(m)}<p class="profile-bio">${m.bio}</p>
     <a class="button dark booking-whatsapp" href="${wa}" target="_blank" rel="noopener">SOLICITAR PORTFOLIO →</a></div>
   </section>
-  <section class="portfolio"><div class="section-head"><div><p class="kicker">${escapeHTML(getModelsCopy().profilePortfolioKicker)}</p><h2>${escapeHTML(getModelsCopy().profilePortfolioTitle)}<br><em>${escapeHTML(getModelsCopy().profilePortfolioAccent)}</em></h2></div></div><div class="portfolio-grid">${(m.gallery?.length?m.gallery:[m.image,"",""]).map((raw,i)=>{const media=normalizeMedia(raw);return media.src?(media.type==="video"?`<video class="gallery-photo gallery-video portfolio-choice" data-media-type="video" data-src="${media.src}" style="--gallery-w:${Number(media.width)||100}%;--gallery-h:${Number(media.height)||520}px;--gallery-fit:${media.fit==="contain"?"contain":"cover"};--gallery-x:${Number(media.x??50)}%;--gallery-y:${Number(media.y??50)}%;--gallery-zoom:${Number(media.zoom)||100}%" src="${media.src}" muted loop autoplay playsinline controls></video>`:`<div class="photo gallery-photo portfolio-choice" data-media-type="image" data-src="${media.src}" data-filter="${media.filter||"natural"}" style="background-image:url('${media.src}');--gallery-w:${Number(media.width)||100}%;--gallery-h:${Number(media.height)||520}px;--gallery-fit:${media.fit==="contain"?"contain":"cover"};--gallery-x:${Number(media.x??50)}%;--gallery-y:${Number(media.y??50)}%;--gallery-zoom:${Number(media.zoom)||100}%;--gallery-filter:${media.filter==="mono"?"grayscale(1)":"none"}"></div>`):`<div class="photo gallery-photo placeholder-${(i+1)%4}"></div>`}).join("")}</div></section>
+  <section class="portfolio"><div class="portfolio-grid">${(m.gallery?.length?m.gallery:[m.image,"",""]).map((raw,i)=>{const media=normalizeMedia(raw);return media.src?(media.type==="video"?`<video class="gallery-photo gallery-video portfolio-choice" data-media-type="video" data-src="${media.src}" style="--gallery-w:${Number(media.width)||100}%;--gallery-h:${Number(media.height)||520}px;--gallery-fit:${media.fit==="contain"?"contain":"cover"};--gallery-x:${Number(media.x??50)}%;--gallery-y:${Number(media.y??50)}%;--gallery-zoom:${Number(media.zoom)||100}%" src="${media.src}" muted loop autoplay playsinline controls></video>`:`<div class="photo gallery-photo portfolio-choice" data-media-type="image" data-src="${media.src}" data-filter="${media.filter||"natural"}" style="background-image:url('${media.src}');--gallery-w:${Number(media.width)||100}%;--gallery-h:${Number(media.height)||520}px;--gallery-fit:${media.fit==="contain"?"contain":"cover"};--gallery-x:${Number(media.x??50)}%;--gallery-y:${Number(media.y??50)}%;--gallery-zoom:${Number(media.zoom)||100}%;--gallery-filter:${media.filter==="mono"?"grayscale(1)":"none"}"></div>`):`<div class="photo gallery-photo placeholder-${(i+1)%4}"></div>`}).join("")}</div></section>
   <section class="booking"><p>¿Querés trabajar con <b>${m.name}</b>?</p><a class="button booking-whatsapp" href="${wa}" target="_blank" rel="noopener">CONTACTAR POR WHATSAPP →</a></section>`;
   const main=root.querySelector(".profile-main-photo");
   root.querySelectorAll(".portfolio-choice[data-media-type=image]").forEach(el=>el.addEventListener("click",()=>{const src=el.dataset.src;if(!src||!main)return;main.dataset.mainSrc=src;main.style.backgroundImage=`url('${src}')`;main.style.setProperty("--profile-filter",el.dataset.filter==="mono"?"grayscale(1)":"none");main.style.backgroundPosition=getComputedStyle(el).backgroundPosition;main.style.backgroundSize=getComputedStyle(el).backgroundSize;main.scrollIntoView({behavior:"smooth",block:"center"})}));
@@ -253,7 +277,7 @@ window.addEventListener("pageshow",()=>document.getElementById("pageTransition")
 // SINCRONIZACIÓN EN VIVO CON EL PANEL ORIGINAL
 const CARESSANO_LIVE_KEYS=new Set(["caressanoDemo","caressanoAboutDemo","caressanoVisualDemo","caressanoHomeDemo","caressanoBannerDemo","caressanoNewsDemo","caressanoModelsCopyDemo"]);
 let caressanoRefreshTimer;
-function refreshCaressanoLive(){clearTimeout(caressanoRefreshTimer);caressanoRefreshTimer=setTimeout(()=>{try{applyVisualAdminSettings();applyStoredHeroImage();applyContent();applyHomeAdminContent();applyNews();applyModelsCopy();applyGlobalContact();applyAboutAdminContent();applyAboutBanner();applyPremiumBanner();if(document.getElementById("models"))renderModels()}catch(err){console.warn("Actualización en vivo parcial",err)}},80)}
+function refreshCaressanoLive(){clearTimeout(caressanoRefreshTimer);caressanoRefreshTimer=setTimeout(()=>{try{applyVisualAdminSettings();applyStoredHeroImage();applyContent();applyHomeAdminContent();applyNews();applyModelsCopy();applyGlobalContact();applyAboutAdminContent();editorializeAbout();applyAboutBanner();applyPremiumBanner();if(document.getElementById("models"))renderModels()}catch(err){console.warn("Actualización en vivo parcial",err)}},80)}
 window.addEventListener("storage",e=>{if(CARESSANO_LIVE_KEYS.has(e.key))refreshCaressanoLive()});
 if("BroadcastChannel" in window){try{const ch=new BroadcastChannel("caressano-live");ch.onmessage=e=>{if(e.data?.type==="refresh")refreshCaressanoLive()}}catch(e){}}
 

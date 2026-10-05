@@ -1648,3 +1648,195 @@ body.nosotros-page #aboutMediaBanner .premium-reel-track{min-height:var(--reel-h
   body.nosotros-page .nosotros-intro h1{font-size:18vw!important}
   .compact-models .model-meta h3{font-size:11px!important}
 }
+
+/* V9.2 — NOSOTROS EDITORIAL / magazine layout */
+body.nosotros-page .nosotros-copy{display:flex!important;flex-direction:column!important;gap:0!important;border-top:1px solid var(--premium-line)!important}
+body.nosotros-page .nosotros-block{display:grid!important;grid-template-columns:minmax(0,.82fr) minmax(320px,1.18fr)!important;grid-template-areas:"copy media"!important;gap:clamp(42px,6vw,96px)!important;padding:clamp(52px,7vw,92px) 0!important;align-items:center!important;border-bottom:1px solid var(--premium-line)!important}
+body.nosotros-page .nosotros-block:nth-child(even){grid-template-columns:minmax(320px,1.18fr) minmax(0,.82fr)!important;grid-template-areas:"media copy"!important}
+body.nosotros-page .nosotros-block .about-editorial-copy{grid-area:copy!important;display:grid!important;grid-template-columns:34px minmax(145px,190px) minmax(0,1fr)!important;gap:18px!important;align-items:start!important}
+body.nosotros-page .nosotros-block .about-editorial-media{grid-area:media!important;min-width:0!important}
+body.nosotros-page .nosotros-block .about-editorial-media .nosotros-photo-slot{width:100%!important;height:clamp(420px,48vw,680px)!important;max-width:none!important;margin:0!important}
+body.nosotros-page .nosotros-photos{display:none!important}
+body.nosotros-page .nosotros-block-placeholder{display:none!important}
+body.nosotros-page .nosotros-block>span,body.nosotros-page .nosotros-block>h2,body.nosotros-page .nosotros-block>p{display:none!important}
+
+@media(max-width:700px){
+  body.nosotros-page .nosotros-main{padding:88px 16px 48px!important;overflow:hidden!important}
+  body.nosotros-page .nosotros-intro{margin-bottom:32px!important}
+  body.nosotros-page .nosotros-intro h1{font-size:clamp(48px,15.5vw,68px)!important;line-height:.9!important;letter-spacing:-.035em!important;white-space:normal!important;width:100%!important;max-width:100%!important;overflow:visible!important;font-weight:500!important}
+  body.nosotros-page .nosotros-lead{font-size:13px!important;line-height:1.58!important;max-width:94%!important}
+  body.nosotros-page .nosotros-block,body.nosotros-page .nosotros-block:nth-child(even){display:grid!important;grid-template-columns:1fr!important;grid-template-areas:"copy" "media"!important;gap:22px!important;padding:30px 0 34px!important}
+  body.nosotros-page .nosotros-block .about-editorial-copy{display:grid!important;grid-template-columns:26px minmax(0,1fr)!important;gap:8px 12px!important;width:100%!important}
+  body.nosotros-page .about-editorial-copy>span{grid-column:1!important;grid-row:1!important;font-size:8px!important;font-weight:600!important}
+  body.nosotros-page .about-editorial-copy>h2{grid-column:2!important;grid-row:1!important;font-size:11px!important;line-height:1.35!important;letter-spacing:.13em!important;font-weight:700!important}
+  body.nosotros-page .about-editorial-copy>p{grid-column:1 / -1!important;grid-row:2!important;font-size:13px!important;line-height:1.58!important;color:#4d4d49!important;margin-top:8px!important;max-width:100%!important}
+  body.nosotros-page .nosotros-block .about-editorial-media .nosotros-photo-slot{height:112vw!important;min-height:340px!important;max-height:560px!important}
+  /* Engrosar sólo en móvil las tipografías extremadamente finas para evitar trazos perdidos */
+  body.nosotros-page .nosotros-kicker,body.nosotros-page .v5-link,body.nosotros-page .about-editorial-copy>span,body.nosotros-page .about-editorial-copy>h2{font-weight:600!important;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+}
+
+/* V9.3 — NOSOTROS: editorial ancho real / corrección de columnas */
+@media (min-width:701px){
+  body.nosotros-page .nosotros-block,
+  body.nosotros-page .nosotros-block:nth-child(even){
+    grid-template-columns:minmax(420px,.95fr) minmax(460px,1.05fr)!important;
+    gap:clamp(48px,6vw,92px)!important;
+    padding:clamp(44px,5vw,72px) 0!important;
+  }
+  body.nosotros-page .nosotros-block:nth-child(even){
+    grid-template-areas:"media copy"!important;
+  }
+  body.nosotros-page .nosotros-block .about-editorial-copy{
+    display:grid!important;
+    grid-template-columns:42px minmax(0,1fr)!important;
+    grid-template-rows:auto auto!important;
+    column-gap:18px!important;
+    row-gap:22px!important;
+    width:100%!important;
+    max-width:none!important;
+    align-content:start!important;
+  }
+  body.nosotros-page .about-editorial-copy>span{grid-column:1!important;grid-row:1!important;padding-top:2px!important}
+  body.nosotros-page .about-editorial-copy>h2{grid-column:2!important;grid-row:1!important;font-size:11px!important;line-height:1.35!important}
+  body.nosotros-page .about-editorial-copy>p{
+    grid-column:1 / -1!important;
+    grid-row:2!important;
+    width:100%!important;
+    max-width:none!important;
+    font-size:14px!important;
+    line-height:1.72!important;
+    margin:0!important;
+    columns:1!important;
+  }
+  body.nosotros-page .nosotros-block .about-editorial-media .nosotros-photo-slot{
+    height:clamp(360px,34vw,520px)!important;
+  }
+}
+
+@media (max-width:700px){
+  body.nosotros-page .nosotros-intro h1{
+    font-size:clamp(45px,14.5vw,64px)!important;
+    letter-spacing:-.025em!important;
+    white-space:nowrap!important;
+  }
+  body.nosotros-page .nosotros-block,
+  body.nosotros-page .nosotros-block:nth-child(even){
+    gap:16px!important;
+    padding:24px 0 28px!important;
+  }
+  body.nosotros-page .nosotros-block .about-editorial-copy{
+    grid-template-columns:30px minmax(0,1fr)!important;
+    gap:8px 10px!important;
+  }
+  body.nosotros-page .about-editorial-copy>p{
+    grid-column:1 / -1!important;
+    width:100%!important;
+    max-width:none!important;
+    font-size:13px!important;
+    line-height:1.48!important;
+    margin:5px 0 0!important;
+  }
+  body.nosotros-page .nosotros-block .about-editorial-media .nosotros-photo-slot{
+    height:64vw!important;
+    min-height:220px!important;
+    max-height:330px!important;
+  }
+  body.nosotros-page .nosotros-lead{max-width:100%!important;line-height:1.48!important}
+  body.nosotros-page .nosotros-kicker,
+  body.nosotros-page .v5-link,
+  body.nosotros-page .about-editorial-copy>span,
+  body.nosotros-page .about-editorial-copy>h2{
+    font-weight:650!important;
+    text-shadow:0 0 .01px currentColor!important;
+  }
+}
+
+
+/* =========================================================
+   CARESSANO V9.4 — MODEL / PROFILE RESPONSIVE POLISH
+   ========================================================= */
+/* Etiquetas editoriales: gris oscuro como predeterminado. */
+.models-page .models-intro .kicker,
+.nosotros-kicker,
+.profile-copy .kicker,
+.models-page .kicker,
+.portfolio .kicker{color:#4f4f4c!important}
+
+/* Drawer de contacto sólido también en tablet: sin transparencias. */
+@media (min-width:601px) and (max-width:1100px){
+  .v5-clean .v5-drawer{
+    width:min(460px,58vw)!important;
+    height:100dvh!important;
+    min-height:100dvh!important;
+    overflow-y:auto!important;
+    background:#080808!important;
+    opacity:1!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+    box-shadow:-28px 0 70px rgba(0,0,0,.28)!important;
+    padding:92px 38px 34px!important;
+  }
+  .v5-clean .v5-drawer.open{transform:translateX(0)!important}
+  .v5-clean .v5-drawer section{background:#080808!important}
+}
+
+@media (max-width:600px){
+  /* Perfil: composición ordenada y alineada en teléfono. */
+  .profile-page .profile-hero{display:block!important;width:100%!important}
+  .profile-page .profile-copy{padding:46px 7vw 52px!important;text-align:left!important}
+  .profile-page .profile-copy .kicker{margin:0 0 22px!important;color:#4f4f4c!important;font-weight:600!important}
+  .profile-page .profile-copy h1{
+    font-size:clamp(50px,14.2vw,68px)!important;
+    line-height:.86!important;
+    letter-spacing:-.035em!important;
+    margin:0 0 32px!important;
+    overflow-wrap:normal!important;
+    word-break:normal!important;
+  }
+  .profile-page .profile-copy .button{width:100%!important;text-align:center!important;justify-content:center!important}
+
+  /* Las líneas ultrafinas de Bodoni ganan un poco de cuerpo en pantallas chicas. */
+  .profile-page .profile-copy h1,
+  .models-intro h1,
+  .compact-models .model-meta h3,
+  .models-contact h2,
+  .profile-page .logo{
+    font-weight:500!important;
+    -webkit-text-stroke:.18px currentColor;
+    text-rendering:geometricPrecision;
+  }
+
+  /* Foto principal siempre centrada dentro de su área. */
+  .profile-page .profile-main-photo{
+    width:100%!important;
+    margin-left:auto!important;
+    margin-right:auto!important;
+    background-position:center center!important;
+  }
+
+  /* Portfolio del modelo: carrusel horizontal, igual al board de modelos. */
+  .profile-page .portfolio{padding:34px 0 54px!important;overflow:hidden!important}
+  .profile-page .portfolio-grid{
+    display:flex!important;
+    grid-template-columns:none!important;
+    overflow-x:auto!important;
+    overscroll-behavior-x:contain!important;
+    scroll-snap-type:x mandatory!important;
+    -webkit-overflow-scrolling:touch!important;
+    scrollbar-width:none!important;
+    gap:10px!important;
+    padding:0 5vw 10px!important;
+  }
+  .profile-page .portfolio-grid::-webkit-scrollbar{display:none!important}
+  .profile-page .gallery-photo.portfolio-choice,
+  .profile-page .portfolio-grid>.gallery-photo{
+    flex:0 0 78vw!important;
+    width:78vw!important;
+    max-width:78vw!important;
+    height:108vw!important;
+    min-height:0!important;
+    scroll-snap-align:center!important;
+    background-position:var(--gallery-x,50%) var(--gallery-y,50%)!important;
+  }
+  .profile-page .gallery-video{object-fit:var(--gallery-fit,cover)!important;object-position:var(--gallery-x,50%) var(--gallery-y,50%)!important}
+}
