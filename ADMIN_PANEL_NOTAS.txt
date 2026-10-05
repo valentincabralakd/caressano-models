@@ -1,0 +1,18 @@
+CARESSANO MODELS — PANEL DE ADMINISTRACIÓN V5
+
+Acceso demo local:
+Email: propietario@caressanomodels.com
+Contraseña: caressano-demo
+
+Módulos incluidos:
+- Resumen general del sitio.
+- Inicio: edición de textos principales y CTA.
+- Modelos: búsqueda, filtros, crear, editar, reordenar, duplicar, publicar/despublicar, eliminar, foto principal y portfolio.
+- Nosotros: introducción, bloques dinámicos reordenables, negritas con **texto**, cuadros de foto dinámicos, ancho/alto ajustable y orden.
+- Contacto: Instagram, WhatsApp, email, ubicación y Google Maps.
+- Diseño: portada, encuadre, colores y tamaños tipográficos.
+- Backups: exportar/importar JSON y restaurar datos locales.
+- Usuarios: estructura preparada para Propietario y Administrador.
+
+IMPORTANTE:
+Esta versión guarda cambios en localStorage del navegador. El paso siguiente es conectar Supabase Auth/Database/Storage para que los cambios queden online y sincronizados entre dispositivos.

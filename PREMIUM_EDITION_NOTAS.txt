@@ -1,0 +1,20 @@
+CARESSANO MODELS — V5 PREMIUM EDITORIAL EDITION
+
+Esta versión parte del V5 Final Admin Control Center.
+No modifica la arquitectura del panel de administración ni elimina funciones.
+
+Refinamientos aplicados a la web pública:
+- Paleta más neutra y editorial.
+- Portada con tratamiento monocromático de lujo sin reemplazar la imagen aprobada.
+- Header más limpio, translúcido y preciso.
+- Contact drawer negro premium.
+- Mejor jerarquía tipográfica y espaciado en Inicio.
+- Board de Modelos con acabado editorial, más aire y fotografía monocromática.
+- Nosotros con mejor lectura, ritmo, líneas y espacios.
+- Perfil de modelo más limpio y sofisticado.
+- Transiciones y hover más delicados.
+- Responsive refinado, manteniendo navegación y estructura.
+- Se conserva el panel Control Center y sus controles visuales.
+
+Ajuste de coherencia:
+- En Modelos se actualizó la ubicación superior a Río Cuarto · Córdoba · Argentina.
