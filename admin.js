@@ -17,7 +17,8 @@ async function durableSyncAll(){for(const k of CARESSANO_PERSIST_KEYS){const v=l
 const caressanoChannel=("BroadcastChannel" in window)?new BroadcastChannel("caressano-live"):null;
 function notifyPublic(area="content"){try{caressanoChannel?.postMessage({type:"refresh",area,at:Date.now()})}catch(e){}}
 function safeSet(key,value,area="content"){try{localStorage.setItem(key,JSON.stringify(value));const saved=localStorage.getItem(key);durablePut(key,saved).then(()=>{try{localStorage.setItem("caressanoLastSavedAt",String(Date.now()))}catch(e){}});touchStatus();notifyPublic(area);return true}catch(e){console.error(e);alert("No se pudo guardar. El almacenamiento local del navegador puede estar lleno; exportá un backup y eliminá videos/fotos pesadas del panel.");return false}}
-const demoEmail="propietario@caressanomodels.com",demoPassword="caressano-demo";
+const SUPABASE_URL="https://zvyvsmscrlwqrrugoven.supabase.co";
+const SUPABASE_KEY=sb_publishable_ZbFT9AkHu41tbszLrvFbew_EV-fEt6i;
 const clone=x=>JSON.parse(JSON.stringify(x));
 function getData(){try{const raw=JSON.parse(localStorage.getItem(DATA_KEY))||{};return {content:{...clone(DEFAULTS.content),...(raw.content||{}),contact:{...clone(DEFAULTS.content.contact),...(raw.content?.contact||{})}},images:{...clone(DEFAULTS.images),...(raw.images||{})},models:Array.isArray(raw.models)?raw.models:clone(DEFAULTS.models)}}catch(e){return clone(DEFAULTS)}}
 function saveData(d){return safeSet(DATA_KEY,d,"data")}
@@ -41,7 +42,7 @@ const login=document.getElementById("adminLogin"),shell=document.getElementById(
 function showAdmin(){login.hidden=true;shell.hidden=false;loadAll()}
 function showLogin(){login.hidden=false;shell.hidden=true}
 document.addEventListener("DOMContentLoaded",async()=>{const restored=await durableRestore();mirrorExistingSettings();if(sessionStorage.getItem(LOGIN_KEY)==="1")showAdmin();else showLogin();if(restored)loadAll?.()});
-document.getElementById("loginForm").onsubmit=e=>{e.preventDefault();const email=document.getElementById("loginEmail").value.trim().toLowerCase(),pw=document.getElementById("loginPassword").value,err=document.getElementById("loginError");if(email===demoEmail&&pw===demoPassword){sessionStorage.setItem(LOGIN_KEY,"1");err.textContent="";showAdmin()}else err.textContent="Email o contraseña incorrectos en esta demo."};
+document.getElementById("loginForm").onsubmit=async(e)=>{e.preventDefault();const email=document.getElementById("loginEmail").value.trim();const password=document.getElementById("loginPassword").value;const r=await fetch(SUPABASE_URL+"/auth/v1/token?grant_type=password",{method:"POST",headers:{"apikey":SUPABASE_KEY,"Content-Type":"application/json"},body:JSON.stringify({email,password})});const j=await r.json();if(!r.ok){document.getElementById("loginError").textContent="Correo o contraseña incorrectos.";return}sessionStorage.setItem(LOGIN_KEY,j.access_token);showAdmin()};
 document.getElementById("logoutBtn").onclick=()=>{sessionStorage.removeItem(LOGIN_KEY);showLogin()};
 function openTab(name){document.querySelectorAll(".tab,.tab-panel").forEach(x=>x.classList.remove("active"));document.querySelector(`.tab[data-tab="${name}"]`)?.classList.add("active");document.getElementById("tab-"+name)?.classList.add("active");window.scrollTo({top:0,behavior:"smooth"})}
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>openTab(b.dataset.tab));
