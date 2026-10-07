@@ -269,8 +269,83 @@ function initProfile(){
   setTimeout(()=>document.getElementById("pageTransition")?.classList.remove("active"),120);
   document.querySelectorAll("a[href$='.html']").forEach(a=>a.addEventListener("click",e=>{e.preventDefault();document.getElementById("pageTransition")?.classList.add("active");setTimeout(()=>location.assign(a.getAttribute("href")),650)}));
 }
-document.addEventListener("DOMContentLoaded",async()=>{await durableRestore();mirrorExistingSettings();applyVisualAdminSettings();if(document.getElementById("profile"))initProfile();else initPage()});
+/* =========================================================
+   CARESSANO · DATOS PÚBLICOS DESDE SUPABASE
+========================================================= */
 
+const CARESSANO_SUPABASE_URL="https://zvyvsmscrlwqrrugoven.supabase.co";
+const CARESSANO_SUPABASE_KEY="sb_publishable_ZbFT9AkHu41tbszLrvFbew_EV-fEt6i";
+
+async function loadCaressanoFromSupabase(){
+  try{
+    const response=await fetch(
+      CARESSANO_SUPABASE_URL+
+      "/rest/v1/caressano_site?id=eq.main&select=data",
+      {
+        headers:{
+          "apikey":CARESSANO_SUPABASE_KEY
+        },
+        cache:"no-store"
+      }
+    );
+
+    if(!response.ok){
+      throw new Error("Supabase "+response.status);
+    }
+
+    const rows=await response.json();
+    const remote=rows?.[0]?.data;
+
+    if(!remote || typeof remote!=="object" || !Object.keys(remote).length){
+      return false;
+    }
+
+    for(const key of CARESSANO_PERSIST_KEYS){
+      if(Object.prototype.hasOwnProperty.call(remote,key)){
+        localStorage.setItem(key,remote[key]);
+        await durablePut(key,remote[key]);
+      }else{
+        localStorage.removeItem(key);
+        await durableDelete(key);
+      }
+    }
+
+    if(Object.prototype.hasOwnProperty.call(remote,HERO_IMAGE_KEY)){
+      await durablePut(HERO_IMAGE_KEY,remote[HERO_IMAGE_KEY]);
+    }else{
+      await durableDelete(HERO_IMAGE_KEY);
+    }
+
+    return true;
+
+  }catch(error){
+    console.warn(
+      "No se pudo cargar Supabase. Se usa la copia local:",
+      error
+    );
+    return false;
+  }
+}
+
+document.addEventListener("DOMContentLoaded",async()=>{
+  /*
+    Primero recuperamos el respaldo local.
+    Después Supabase lo reemplaza con la versión publicada.
+  */
+  await durableRestore();
+
+  await loadCaressanoFromSupabase();
+
+  mirrorExistingSettings();
+
+  applyVisualAdminSettings();
+
+  if(document.getElementById("profile")){
+    initProfile();
+  }else{
+    initPage();
+  }
+});
 window.addEventListener("pageshow",()=>document.getElementById("pageTransition")?.classList.remove("active"));
 
 
