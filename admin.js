@@ -15,10 +15,444 @@ function mirrorExistingSettings(){CARESSANO_PERSIST_KEYS.forEach(k=>{const v=loc
 async function durableSyncAll(){for(const k of CARESSANO_PERSIST_KEYS){const v=localStorage.getItem(k);if(v!==null)await durablePut(k,v)}}
 
 const caressanoChannel=("BroadcastChannel" in window)?new BroadcastChannel("caressano-live"):null;
-function notifyPublic(area="content"){try{caressanoChannel?.postMessage({type:"refresh",area,at:Date.now()})}catch(e){}}
-function safeSet(key,value,area="content"){try{localStorage.setItem(key,JSON.stringify(value));const saved=localStorage.getItem(key);durablePut(key,saved).then(()=>{try{localStorage.setItem("caressanoLastSavedAt",String(Date.now()))}catch(e){}});touchStatus();notifyPublic(area);return true}catch(e){console.error(e);alert("No se pudo guardar. El almacenamiento local del navegador puede estar lleno; exportá un backup y eliminá videos/fotos pesadas del panel.");return false}}
+
+function notifyPublic(area="content"){
+  try{
+    caressanoChannel?.postMessage({
+      type:"refresh",
+      area,
+      at:Date.now()
+    });
+  }catch(e){}
+  scheduleRemotePublish();
+}
+
+function safeSet(key,value,area="content"){
+  try{
+    localStorage.setItem(key,JSON.stringify(value));
+    const saved=localStorage.getItem(key);
+
+    durablePut(key,saved).then(()=>{
+      try{
+        localStorage.setItem("caressanoLastSavedAt",String(Date.now()));
+      }catch(e){}
+    });
+
+    touchStatus();
+    notifyPublic(area);
+    return true;
+  }catch(e){
+    console.error(e);
+    alert("No se pudo guardar.");
+    return false;
+  }
+}
+
 const SUPABASE_URL="https://zvyvsmscrlwqrrugoven.supabase.co";
 const SUPABASE_KEY="sb_publishable_ZbFT9AkHu41tbszLrvFbew_EV-fEt6i";
+
+/* =========================================================
+   PUBLICACIÓN REAL DEL PANEL
+   Panel → Supabase → página pública
+========================================================= */
+
+const REMOTE_SITE_TABLE="caressano_site";
+const REMOTE_SITE_ID="main";
+
+const REMOTE_SITE_KEYS=[
+  ...CARESSANO_PERSIST_KEYS
+];
+
+const LOGIN_REFRESH_KEY=LOGIN_KEY+"Refresh";
+const LOGIN_EXPIRES_KEY=LOGIN_KEY+"Expires";
+
+let remotePublishTimer=null;
+
+function storeAdminSession(session){
+  if(!session?.access_token)return;
+
+  sessionStorage.setItem(
+    LOGIN_KEY,
+    session.access_token
+  );
+
+  if(session.refresh_token){
+    sessionStorage.setItem(
+      LOGIN_REFRESH_KEY,
+      session.refresh_token
+    );
+  }
+
+  if(session.expires_in){
+    sessionStorage.setItem(
+      LOGIN_EXPIRES_KEY,
+      String(
+        Date.now()+
+        Number(session.expires_in)*1000
+      )
+    );
+  }
+}
+
+function clearAdminSession(){
+  sessionStorage.removeItem(LOGIN_KEY);
+  sessionStorage.removeItem(LOGIN_REFRESH_KEY);
+  sessionStorage.removeItem(LOGIN_EXPIRES_KEY);
+}
+
+async function getAdminToken(){
+
+  let token=
+    sessionStorage.getItem(LOGIN_KEY)||"";
+
+  if(!token)return "";
+
+  const expires=
+    Number(
+      sessionStorage.getItem(
+        LOGIN_EXPIRES_KEY
+      )||0
+    );
+
+  if(
+    !expires ||
+    Date.now()<expires-60000
+  ){
+    return token;
+  }
+
+  const refresh=
+    sessionStorage.getItem(
+      LOGIN_REFRESH_KEY
+    )||"";
+
+  if(!refresh)return token;
+
+  try{
+
+    const response=await fetch(
+      SUPABASE_URL+
+      "/auth/v1/token?grant_type=refresh_token",
+      {
+        method:"POST",
+        headers:{
+          "apikey":SUPABASE_KEY,
+          "Content-Type":"application/json"
+        },
+        body:JSON.stringify({
+          refresh_token:refresh
+        })
+      }
+    );
+
+    const session=
+      await response.json();
+
+    if(!response.ok){
+      throw new Error(
+        session?.message||
+        session?.msg||
+        "No se pudo renovar la sesión"
+      );
+    }
+
+    storeAdminSession(session);
+
+    return session.access_token||"";
+
+  }catch(error){
+
+    console.warn(
+      "Renovación de sesión:",
+      error
+    );
+
+    return token;
+  }
+}
+
+async function collectSiteState(){
+
+  const state={};
+
+  for(const key of REMOTE_SITE_KEYS){
+
+    const value=
+      localStorage.getItem(key);
+
+    if(value!==null){
+      state[key]=value;
+    }
+  }
+
+  const hero=
+    await durableGet(HERO_IMAGE_KEY);
+
+  if(hero!==undefined){
+    state[HERO_IMAGE_KEY]=hero;
+  }
+
+  return state;
+}
+
+async function readRemoteSiteState(){
+
+  const response=await fetch(
+    SUPABASE_URL+
+    "/rest/v1/"+
+    REMOTE_SITE_TABLE+
+    "?id=eq."+
+    REMOTE_SITE_ID+
+    "&select=data",
+    {
+      headers:{
+        "apikey":SUPABASE_KEY
+      },
+      cache:"no-store"
+    }
+  );
+
+  if(!response.ok){
+    throw new Error(
+      "No se pudo leer Supabase: "+
+      response.status
+    );
+  }
+
+  const rows=
+    await response.json();
+
+  if(
+    rows?.[0]?.data &&
+    typeof rows[0].data==="object"
+  ){
+    return rows[0].data;
+  }
+
+  return {};
+}
+
+async function applyRemoteSiteState(state){
+
+  if(
+    !state ||
+    typeof state!=="object" ||
+    !Object.keys(state).length
+  ){
+    return false;
+  }
+
+  for(const key of REMOTE_SITE_KEYS){
+
+    if(
+      Object.prototype.hasOwnProperty.call(
+        state,
+        key
+      )
+    ){
+
+      localStorage.setItem(
+        key,
+        state[key]
+      );
+
+      await durablePut(
+        key,
+        state[key]
+      );
+
+    }else{
+
+      localStorage.removeItem(key);
+      await durableDelete(key);
+    }
+  }
+
+  if(
+    Object.prototype.hasOwnProperty.call(
+      state,
+      HERO_IMAGE_KEY
+    )
+  ){
+
+    await durablePut(
+      HERO_IMAGE_KEY,
+      state[HERO_IMAGE_KEY]
+    );
+
+  }else{
+
+    await durableDelete(
+      HERO_IMAGE_KEY
+    );
+  }
+
+  return true;
+}
+
+async function publishSiteState(){
+
+  const token=
+    await getAdminToken();
+
+  if(!token)return false;
+
+  const status=
+    document.getElementById(
+      "globalStatus"
+    );
+
+  if(status){
+    status.textContent=
+      "● PUBLICANDO...";
+    status.classList.add("saved");
+  }
+
+  try{
+
+    const state=
+      await collectSiteState();
+
+    const response=await fetch(
+      SUPABASE_URL+
+      "/rest/v1/"+
+      REMOTE_SITE_TABLE+
+      "?id=eq."+
+      REMOTE_SITE_ID,
+      {
+        method:"PATCH",
+
+        headers:{
+          "apikey":SUPABASE_KEY,
+          "Authorization":
+            "Bearer "+token,
+          "Content-Type":
+            "application/json",
+          "Prefer":
+            "return=minimal"
+        },
+
+        body:JSON.stringify({
+          data:state,
+          updated_at:
+            new Date().toISOString()
+        })
+      }
+    );
+
+    if(!response.ok){
+      throw new Error(
+        await response.text()
+      );
+    }
+
+    if(status){
+
+      status.textContent=
+        "● PUBLICADO";
+
+      clearTimeout(
+        touchStatus.t
+      );
+
+      touchStatus.t=
+        setTimeout(()=>{
+
+          status.textContent=
+            "● LISTO";
+
+          status.classList.remove(
+            "saved"
+          );
+
+        },2200);
+    }
+
+    return true;
+
+  }catch(error){
+
+    console.error(
+      "Publicación Supabase:",
+      error
+    );
+
+    if(status){
+      status.textContent=
+        "● ERROR AL PUBLICAR";
+      status.classList.remove(
+        "saved"
+      );
+    }
+
+    alert(
+      "Los cambios se guardaron en el panel, pero no se pudieron publicar."
+    );
+
+    return false;
+  }
+}
+
+function scheduleRemotePublish(){
+
+  if(
+    !sessionStorage.getItem(
+      LOGIN_KEY
+    )
+  ){
+    return;
+  }
+
+  clearTimeout(
+    remotePublishTimer
+  );
+
+  remotePublishTimer=
+    setTimeout(
+      ()=>publishSiteState(),
+      650
+    );
+}
+
+async function syncAdminWithRemote(){
+
+  try{
+
+    const remote=
+      await readRemoteSiteState();
+
+    const exists=
+      await applyRemoteSiteState(
+        remote
+      );
+
+    if(exists){
+
+      loadAll();
+      return true;
+
+    }
+
+    /*
+      Supabase está vacío.
+      Publicamos automáticamente
+      lo que ya tenías en el panel.
+    */
+
+    await publishSiteState();
+
+    return false;
+
+  }catch(error){
+
+    console.warn(
+      "Sincronización Supabase:",
+      error
+    );
+
+    return false;
+  }
+}
 const clone=x=>JSON.parse(JSON.stringify(x));
 function getData(){try{const raw=JSON.parse(localStorage.getItem(DATA_KEY))||{};return {content:{...clone(DEFAULTS.content),...(raw.content||{}),contact:{...clone(DEFAULTS.content.contact),...(raw.content?.contact||{})}},images:{...clone(DEFAULTS.images),...(raw.images||{})},models:Array.isArray(raw.models)?raw.models:clone(DEFAULTS.models)}}catch(e){return clone(DEFAULTS)}}
 function saveData(d){return safeSet(DATA_KEY,d,"data")}
@@ -41,9 +475,53 @@ function touchStatus(){const e=document.getElementById("globalStatus");if(!e)ret
 const login=document.getElementById("adminLogin"),shell=document.getElementById("adminShell");
 function showAdmin(){login.hidden=true;shell.hidden=false;loadAll()}
 function showLogin(){login.hidden=false;shell.hidden=true}
-document.addEventListener("DOMContentLoaded",async()=>{const restored=await durableRestore();mirrorExistingSettings();if(sessionStorage.getItem(LOGIN_KEY)==="1")showAdmin();else showLogin();if(restored)loadAll?.()});
-document.getElementById("loginForm").onsubmit=async(e)=>{e.preventDefault();const email=document.getElementById("loginEmail").value.trim();const password=document.getElementById("loginPassword").value;const r=await fetch(SUPABASE_URL+"/auth/v1/token?grant_type=password",{method:"POST",headers:{"apikey":SUPABASE_KEY,"Content-Type":"application/json"},body:JSON.stringify({email,password})});const j=await r.json();if(!r.ok){document.getElementById("loginError").textContent="Correo o contraseña incorrectos.";return}sessionStorage.setItem(LOGIN_KEY,j.access_token);showAdmin()};
-document.getElementById("logoutBtn").onclick=()=>{sessionStorage.removeItem(LOGIN_KEY);showLogin()};
+document.addEventListener("DOMContentLoaded",async()=>{
+  const restored=await durableRestore();
+  mirrorExistingSettings();
+
+  if(sessionStorage.getItem(LOGIN_KEY)){
+    showAdmin();
+    await syncAdminWithRemote();
+  }else{
+    showLogin();
+    if(restored)loadAll?.();
+  }
+});
+
+document.getElementById("loginForm").onsubmit=async(e)=>{
+  e.preventDefault();
+
+  const email=document.getElementById("loginEmail").value.trim();
+  const password=document.getElementById("loginPassword").value;
+
+  const r=await fetch(
+    SUPABASE_URL+"/auth/v1/token?grant_type=password",
+    {
+      method:"POST",
+      headers:{
+        "apikey":SUPABASE_KEY,
+        "Content-Type":"application/json"
+      },
+      body:JSON.stringify({email,password})
+    }
+  );
+
+  const j=await r.json();
+
+  if(!r.ok){
+    document.getElementById("loginError").textContent="Correo o contraseña incorrectos.";
+    return;
+  }
+
+  storeAdminSession(j);
+  showAdmin();
+  await syncAdminWithRemote();
+};
+
+document.getElementById("logoutBtn").onclick=()=>{
+  clearAdminSession();
+  showLogin();
+};
 function openTab(name){document.querySelectorAll(".tab,.tab-panel").forEach(x=>x.classList.remove("active"));document.querySelector(`.tab[data-tab="${name}"]`)?.classList.add("active");document.getElementById("tab-"+name)?.classList.add("active");window.scrollTo({top:0,behavior:"smooth"})}
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>openTab(b.dataset.tab));
 document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>openTab(b.dataset.go));
