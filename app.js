@@ -332,18 +332,25 @@ document.addEventListener("DOMContentLoaded",async()=>{
     Primero recuperamos el respaldo local.
     Después Supabase lo reemplaza con la versión publicada.
   */
-  await durableRestore();
-
-  await loadCaressanoFromSupabase();
+  // La consulta remota tiene prioridad; la copia local solo es respaldo.
+  // El límite evita dejar al visitante esperando indefinidamente por la red.
+  const remoteLoaded = await loadCaressanoFromSupabase();
+  if (!remoteLoaded) await durableRestore();
 
   mirrorExistingSettings();
 
-  applyVisualAdminSettings();
-
-  if(document.getElementById("profile")){
-    initProfile();
-  }else{
-    initPage();
+  try {
+    applyVisualAdminSettings();
+    if(document.getElementById("profile")){
+      initProfile();
+    }else{
+      initPage();
+    }
+  } catch (error) {
+    console.error("Error al inicializar Caressano:", error);
+  } finally {
+    // Mostrar la página solo después de aplicar los datos publicados.
+    document.documentElement.classList.add("caressano-ready");
   }
 });
 window.addEventListener("pageshow",()=>document.getElementById("pageTransition")?.classList.remove("active"));
