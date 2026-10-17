@@ -1840,3 +1840,7 @@ body.nosotros-page .nosotros-block>span,body.nosotros-page .nosotros-block>h2,bo
   }
   .profile-page .gallery-video{object-fit:var(--gallery-fit,cover)!important;object-position:var(--gallery-x,50%) var(--gallery-y,50%)!important}
 }
+
+/* Models: prevent clipped heading lines when typography is customized */
+.models-page .models-intro-heading h1{line-height:1.05;overflow:visible}
+.models-page .models-intro-heading{overflow:visible}
