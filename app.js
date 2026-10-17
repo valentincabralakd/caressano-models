@@ -234,7 +234,7 @@ function initPage(){
   const transition=document.getElementById("pageTransition");
   setTimeout(()=>transition?.classList.remove("active"),120);
   document.querySelectorAll('a[href$=".html"],a[href^="modelo.html"]').forEach(a=>a.addEventListener("click",e=>{
-    if(a.target==="_blank")return;e.preventDefault();const href=a.getAttribute("href");transition?.classList.add("active");setTimeout(()=>location.assign(href),650);
+    if(a.target==="_blank")return;e.preventDefault();const href=a.getAttribute("href");transition?.classList.add("active");setTimeout(()=>location.assign(href),320);
   }));
 }
 function whatsappHref(phone, modelName="") {
@@ -267,7 +267,7 @@ function initProfile(){
   root.querySelectorAll(".portfolio-choice[data-media-type=image]").forEach(el=>el.addEventListener("click",()=>{const src=el.dataset.src;if(!src||!main)return;main.dataset.mainSrc=src;main.style.backgroundImage=`url('${src}')`;main.style.setProperty("--profile-filter",el.dataset.filter==="mono"?"grayscale(1)":"none");main.style.backgroundPosition=getComputedStyle(el).backgroundPosition;main.style.backgroundSize=getComputedStyle(el).backgroundSize;main.scrollIntoView({behavior:"smooth",block:"center"})}));
   if(main)main.addEventListener("click",()=>{const src=main.dataset.mainSrc;if(!src)return;const box=document.createElement("div");box.className="caressano-lightbox";box.innerHTML=`<button type="button" aria-label="Cerrar">×</button><img src="${src}" alt="${m.name}">`;box.querySelector("button").onclick=()=>box.remove();box.onclick=e=>{if(e.target===box)box.remove()};document.body.appendChild(box)});
   setTimeout(()=>document.getElementById("pageTransition")?.classList.remove("active"),120);
-  document.querySelectorAll("a[href$='.html']").forEach(a=>a.addEventListener("click",e=>{e.preventDefault();document.getElementById("pageTransition")?.classList.add("active");setTimeout(()=>location.assign(a.getAttribute("href")),650)}));
+  document.querySelectorAll("a[href$='.html']").forEach(a=>a.addEventListener("click",e=>{e.preventDefault();document.getElementById("pageTransition")?.classList.add("active");setTimeout(()=>location.assign(a.getAttribute("href")),320)}));
 }
 /* =========================================================
    CARESSANO · DATOS PÚBLICOS DESDE SUPABASE
@@ -348,9 +348,13 @@ document.addEventListener("DOMContentLoaded",async()=>{
     }
   } catch (error) {
     console.error("Error al inicializar Caressano:", error);
+    document.getElementById("pageTransition")?.classList.remove("active");
   }
 });
-window.addEventListener("pageshow",()=>document.getElementById("pageTransition")?.classList.remove("active"));
+window.addEventListener("pageshow",event=>{
+  // Solo al volver desde el historial (bfcache); en una carga nueva esperamos Supabase.
+  if(event.persisted) document.getElementById("pageTransition")?.classList.remove("active");
+});
 
 
 // SINCRONIZACIÓN EN VIVO CON EL PANEL ORIGINAL
