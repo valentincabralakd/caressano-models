@@ -1,0 +1,731 @@
+const DEFAULTS={content:{contact:{location:"Río Cuarto, Córdoba, Argentina",email:"info@caressanomodels.com",phone:"+54 9 358 123 4567",socials:"Instagram",instagram:"caressanomodels",maps:"https://www.google.com/maps/search/?api=1&query=R%C3%ADo+Cuarto%2C+C%C3%B3rdoba%2C+Argentina"}},images:{hero:"",editorial:"",manifesto:""},models:[{id:"valentin-cabral",name:"VALENTÍN CABRAL",category:"MEN / MODEL",bio:"",height:"",details:"",image:"images/valentin-cabral/05.jpg",gallery:["images/valentin-cabral/01.jpg","images/valentin-cabral/02.jpg","images/valentin-cabral/03.jpg","images/valentin-cabral/04.jpg","images/valentin-cabral/05.jpg"],placeholder:false,published:true},...Array.from({length:10},(_,i)=>({id:`proximamente-${i+1}`,name:`PRÓXIMAMENTE ${String(i+1).padStart(2,"0")}`,category:"MODEL / SOON",bio:"",height:"",details:"",image:"",gallery:[],placeholder:true,published:false}))]};
+const HERO_IMAGE_KEY="caressanoHeroImagePersistent";
+const DATA_KEY="caressanoDemo",ABOUT_KEY="caressanoAboutDemo",VISUAL_KEY="caressanoVisualDemo",HOME_KEY="caressanoHomeDemo",BANNER_KEY="caressanoBannerDemo",MODELS_COPY_KEY="caressanoModelsCopyDemo",LOGIN_KEY="caressanoAdminDemoSession",STORAGE_REV_KEY="caressanoSectionalStorageRev";
+
+// PERSISTENCIA V6: espejo duradero en IndexedDB. Evita perder cambios al cerrar y volver a abrir.
+const CARESSANO_PERSIST_KEYS=["caressanoDemo","caressanoAboutDemo","caressanoVisualDemo","caressanoHomeDemo","caressanoBannerDemo","caressanoNewsDemo","caressanoNewsStyleDemo","caressanoModelsCopyDemo","caressanoSectionalStorageRev","caressanoPublicStableHeroRev"];
+
+// Settings use memory + IndexedDB. Legacy localStorage is read only for migration.
+const settingsCache=new Map();
+let settingsPending=Promise.resolve(), settingsError=null;
+const siteStorage={
+ getItem(key){if(settingsCache.has(key))return settingsCache.get(key);try{return localStorage.getItem(key)}catch(e){return null}},
+ setItem(key,value){value=String(value);settingsCache.set(key,value);queueSetting(key,value)},
+ removeItem(key){settingsCache.set(key,null);queueSetting(key,null)}
+};
+function queueSetting(key,value){
+ settingsPending=settingsPending.then(async()=>{
+  const db=await caressanoDB();
+  try{await new Promise((resolve,reject)=>{const tx=db.transaction('settings','readwrite');
+   // Tombstones prevent legacy localStorage values from returning after a reset.
+   tx.objectStore('settings').put(value,key);tx.oncomplete=resolve;
+   tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error('Guardado cancelado'));
+  })}finally{db.close()}
+ }).catch(error=>{settingsError=error;console.error('No se pudo guardar en este dispositivo:',error)});
+}
+async function flushSettings(){await settingsPending;if(settingsError){const error=settingsError;settingsError=null;throw error}}
+function caressanoDB(){return new Promise((resolve,reject)=>{const q=indexedDB.open("caressanoModelsPersistent",1);q.onupgradeneeded=()=>{if(!q.result.objectStoreNames.contains("settings"))q.result.createObjectStore("settings")};q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)})}
+async function durablePut(key,value){queueSetting(key,value);await flushSettings()}
+async function durableGet(key){try{await settingsPending;const db=await caressanoDB();const value=await new Promise((res,rej)=>{const tx=db.transaction("settings","readonly"),q=tx.objectStore("settings").get(key);q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});db.close();return value}catch(e){console.warn("Lectura IndexedDB:",e);return undefined}}
+async function durableDelete(key){queueSetting(key,null);await flushSettings()}
+async function durableRestore(){try{await settingsPending;const db=await caressanoDB();let restored=false;for(const key of CARESSANO_PERSIST_KEYS){const val=await new Promise((res,rej)=>{const tx=db.transaction("settings","readonly"),q=tx.objectStore("settings").get(key);q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});if(val!==undefined){settingsCache.set(key,val);restored=true}}db.close();return restored}catch(e){console.warn("Restauración persistente:",e);return false}}
+function mirrorExistingSettings(){CARESSANO_PERSIST_KEYS.forEach(k=>{const v=siteStorage.getItem(k);if(v!==null)queueSetting(k,v)});try{navigator.storage?.persist?.()}catch(e){}}
+// V7: IndexedDB es la copia maestra al reabrir. localStorage queda como caché rápida.
+// Así, si el navegador o una inicialización deja valores viejos en localStorage, no pisan lo guardado.
+async function durableSyncAll(){for(const k of CARESSANO_PERSIST_KEYS){const v=siteStorage.getItem(k);if(v!==null)queueSetting(k,v)}}
+
+const caressanoChannel=("BroadcastChannel" in window)?new BroadcastChannel("caressano-live"):null;
+
+function notifyPublic(area="content"){
+  try{
+    caressanoChannel?.postMessage({
+      type:"refresh",
+      area,
+      at:Date.now()
+    });
+  }catch(e){}
+  scheduleRemotePublish();
+}
+
+function safeSet(key,value,area="content"){
+  try{siteStorage.setItem(key,JSON.stringify(value));
+   flushSettings().then(()=>{touchStatus();notifyPublic(area)}).catch(error=>{
+    console.error(error);alert("No se pudo guardar en este dispositivo. Conservá esta pestaña abierta y exportá un backup.");
+   });return true;
+  }catch(error){console.error(error);alert("No se pudo guardar.");return false}
+ }
+
+const SUPABASE_URL="https://zvyvsmscrlwqrrugoven.supabase.co";
+const SUPABASE_KEY="sb_publishable_ZbFT9AkHu41tbszLrvFbew_EV-fEt6i";
+
+/* =========================================================
+   PUBLICACIÓN REAL DEL PANEL
+   Panel → Supabase → página pública
+========================================================= */
+
+const REMOTE_SITE_TABLE="caressano_site";
+const REMOTE_SITE_ID="main";
+
+const REMOTE_SITE_KEYS=[
+  ...CARESSANO_PERSIST_KEYS
+];
+
+const LOGIN_REFRESH_KEY=LOGIN_KEY+"Refresh";
+const LOGIN_EXPIRES_KEY=LOGIN_KEY+"Expires";
+
+let remotePublishTimer=null;
+
+function storeAdminSession(session){
+  if(!session?.access_token)return;
+
+  sessionStorage.setItem(
+    LOGIN_KEY,
+    session.access_token
+  );
+
+  if(session.refresh_token){
+    sessionStorage.setItem(
+      LOGIN_REFRESH_KEY,
+      session.refresh_token
+    );
+  }
+
+  if(session.expires_in){
+    sessionStorage.setItem(
+      LOGIN_EXPIRES_KEY,
+      String(
+        Date.now()+
+        Number(session.expires_in)*1000
+      )
+    );
+  }
+}
+
+function clearAdminSession(){
+  sessionStorage.removeItem(LOGIN_KEY);
+  sessionStorage.removeItem(LOGIN_REFRESH_KEY);
+  sessionStorage.removeItem(LOGIN_EXPIRES_KEY);
+}
+
+async function getAdminToken(){
+
+  let token=
+    sessionStorage.getItem(LOGIN_KEY)||"";
+
+  if(!token)return "";
+
+  const expires=
+    Number(
+      sessionStorage.getItem(
+        LOGIN_EXPIRES_KEY
+      )||0
+    );
+
+  if(
+    !expires ||
+    Date.now()<expires-60000
+  ){
+    return token;
+  }
+
+  const refresh=
+    sessionStorage.getItem(
+      LOGIN_REFRESH_KEY
+    )||"";
+
+  if(!refresh)return token;
+
+  try{
+
+    const response=await fetch(
+      SUPABASE_URL+
+      "/auth/v1/token?grant_type=refresh_token",
+      {
+        method:"POST",
+        headers:{
+          "apikey":SUPABASE_KEY,
+          "Content-Type":"application/json"
+        },
+        body:JSON.stringify({
+          refresh_token:refresh
+        })
+      }
+    );
+
+    const session=
+      await response.json();
+
+    if(!response.ok){
+      throw new Error(
+        session?.message||
+        session?.msg||
+        "No se pudo renovar la sesión"
+      );
+    }
+
+    storeAdminSession(session);
+
+    return session.access_token||"";
+
+  }catch(error){
+
+    console.warn(
+      "Renovación de sesión:",
+      error
+    );
+
+    return token;
+  }
+}
+
+async function collectSiteState(){
+
+  const state={};
+
+  for(const key of REMOTE_SITE_KEYS){
+
+    const value=
+      siteStorage.getItem(key);
+
+    if(value!==null){
+      state[key]=value;
+    }
+  }
+
+  const hero=
+    await durableGet(HERO_IMAGE_KEY);
+
+  if(hero!==undefined){
+    state[HERO_IMAGE_KEY]=hero;
+  }
+
+  return state;
+}
+
+async function readRemoteSiteState(){
+
+  const response=await fetch(
+    SUPABASE_URL+
+    "/rest/v1/"+
+    REMOTE_SITE_TABLE+
+    "?id=eq."+
+    REMOTE_SITE_ID+
+    "&select=data",
+    {
+      headers:{
+        "apikey":SUPABASE_KEY
+      },
+      cache:"no-store"
+    }
+  );
+
+  if(!response.ok){
+    throw new Error(
+      "No se pudo leer Supabase: "+
+      response.status
+    );
+  }
+
+  const rows=
+    await response.json();
+
+  if(
+    rows?.[0]?.data &&
+    typeof rows[0].data==="object"
+  ){
+    return rows[0].data;
+  }
+
+  return {};
+}
+
+async function applyRemoteSiteState(state){
+
+  if(
+    !state ||
+    typeof state!=="object" ||
+    !Object.keys(state).length
+  ){
+    return false;
+  }
+
+  for(const key of REMOTE_SITE_KEYS){
+
+    if(
+      Object.prototype.hasOwnProperty.call(
+        state,
+        key
+      )
+    ){
+
+      siteStorage.setItem(
+        key,
+        state[key]
+      );
+
+      await durablePut(
+        key,
+        state[key]
+      );
+
+    }else{
+
+      siteStorage.removeItem(key);
+      await durableDelete(key);
+    }
+  }
+
+  if(
+    Object.prototype.hasOwnProperty.call(
+      state,
+      HERO_IMAGE_KEY
+    )
+  ){
+
+    await durablePut(
+      HERO_IMAGE_KEY,
+      state[HERO_IMAGE_KEY]
+    );
+
+  }else{
+
+    await durableDelete(
+      HERO_IMAGE_KEY
+    );
+  }
+
+  return true;
+}
+
+let publicationQueue=Promise.resolve();
+function publishSiteState(){publicationQueue=publicationQueue.then(performPublishSiteState,performPublishSiteState);return publicationQueue}
+async function performPublishSiteState(){
+
+  const token=
+    await getAdminToken();
+
+  if(!token)return false;
+
+  const status=
+    document.getElementById(
+      "globalStatus"
+    );
+
+  if(status){
+    status.textContent=
+      "● PUBLICANDO...";
+    status.classList.add("saved");
+  }
+
+  try{
+
+    await flushSettings();
+    const state=
+      await collectSiteState();
+
+    const response=await fetch(
+      SUPABASE_URL+
+      "/rest/v1/"+
+      REMOTE_SITE_TABLE+
+      "?id=eq."+
+      REMOTE_SITE_ID,
+      {
+        method:"PATCH",
+
+        headers:{
+          "apikey":SUPABASE_KEY,
+          "Authorization":
+            "Bearer "+token,
+          "Content-Type":
+            "application/json",
+          "Prefer":
+            "return=representation"
+        },
+
+        body:JSON.stringify({
+          data:state,
+          updated_at:
+            new Date().toISOString()
+        })
+      }
+    );
+
+    if(!response.ok){
+      throw new Error(
+        await response.text()
+      );
+    }
+
+    const updated=await response.json();
+    if(!Array.isArray(updated)||updated.length!==1)throw new Error("Supabase no actualizó la fila main. Revisá permisos y existencia de la fila.");
+    if(status){
+
+      status.textContent=
+        "● PUBLICADO";
+
+      clearTimeout(
+        touchStatus.t
+      );
+
+      touchStatus.t=
+        setTimeout(()=>{
+
+          status.textContent=
+            "● LISTO";
+
+          status.classList.remove(
+            "saved"
+          );
+
+        },2200);
+    }
+
+    return true;
+
+  }catch(error){
+
+    console.error(
+      "Publicación Supabase:",
+      error
+    );
+
+    if(status){
+      status.textContent=
+        "● ERROR AL PUBLICAR";
+      status.classList.remove(
+        "saved"
+      );
+    }
+
+    alert(
+      "Los cambios se guardaron en el panel, pero no se pudieron publicar."
+    );
+
+    return false;
+  }
+}
+
+function scheduleRemotePublish(){
+
+  if(
+    !sessionStorage.getItem(
+      LOGIN_KEY
+    )
+  ){
+    return;
+  }
+
+  clearTimeout(
+    remotePublishTimer
+  );
+
+  remotePublishTimer=
+    setTimeout(
+      ()=>publishSiteState(),
+      650
+    );
+}
+
+async function syncAdminWithRemote(){
+
+  try{
+
+    const remote=
+      await readRemoteSiteState();
+
+    const exists=
+      await applyRemoteSiteState(
+        remote
+      );
+
+    if(exists){
+
+      loadAll();
+      return true;
+
+    }
+
+    /*
+      Supabase está vacío.
+      Publicamos automáticamente
+      lo que ya tenías en el panel.
+    */
+
+    // Una lectura vacía no autoriza reemplazar el contenido remoto.
+    return false;
+
+  }catch(error){
+
+    console.warn(
+      "Sincronización Supabase:",
+      error
+    );
+
+    return false;
+  }
+}
+const clone=x=>JSON.parse(JSON.stringify(x));
+function getData(){try{const raw=JSON.parse(siteStorage.getItem(DATA_KEY))||{};return {content:{...clone(DEFAULTS.content),...(raw.content||{}),contact:{...clone(DEFAULTS.content.contact),...(raw.content?.contact||{})}},images:{...clone(DEFAULTS.images),...(raw.images||{})},models:Array.isArray(raw.models)?raw.models:clone(DEFAULTS.models)}}catch(e){return clone(DEFAULTS)}}
+function saveData(d){return safeSet(DATA_KEY,d,"data")}
+function migrateSectionalStorage(){try{if(siteStorage.getItem(STORAGE_REV_KEY)==="4")return;const raw=JSON.parse(siteStorage.getItem(DATA_KEY)||"null");if(raw){const clean={};if(Array.isArray(raw.models))clean.models=raw.models;if(raw.images)clean.images=raw.images;if(raw.content?.contact)clean.content={contact:raw.content.contact};siteStorage.setItem(DATA_KEY,JSON.stringify(clean))}const h=JSON.parse(siteStorage.getItem(HOME_KEY)||"null");if(h){h.brandX=0;h.brandY=0;siteStorage.setItem(HOME_KEY,JSON.stringify(h))}const v=JSON.parse(siteStorage.getItem(VISUAL_KEY)||"null");if(v){delete v.heroFit;delete v.heroScale;delete v.heroPosX;delete v.heroPosY;delete v.motionPreset;delete v.motionSpeed;delete v.imageZoom;siteStorage.setItem(VISUAL_KEY,JSON.stringify(v))}const b=JSON.parse(siteStorage.getItem(BANNER_KEY)||"null");if(b){if(Number(b.speed)<72)b.speed=82;siteStorage.setItem(BANNER_KEY,JSON.stringify(b))}const n=JSON.parse(siteStorage.getItem("caressanoNewsDemo")||"null");if(Array.isArray(n)){const slim=n.map(x=>({title:x?.title||"NUEVA NOVEDAD",subtitle:x?.subtitle||"",url:x?.url||"",cta:x?.cta||"VER NOVEDAD"}));siteStorage.setItem("caressanoNewsDemo",JSON.stringify(slim))}siteStorage.setItem(STORAGE_REV_KEY,"4")}catch(e){console.warn("Migración local omitida",e)}}
+// No ejecutar migraciones destructivas sobre datos existentes.
+let data=getData();data.models=(data.models||[]).map(m=>({...m,published:m.published??!m.placeholder,placeholder:m.placeholder??false,gallery:Array.isArray(m.gallery)?m.gallery:[]}));
+function esc(s){return String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;")}
+function slugify(v){return String(v||"modelo").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")||("modelo-"+Date.now())}
+function optimizeImageFile(file,cb){if(!file)return;const r=new FileReader();r.onerror=()=>alert("No se pudo leer la imagen seleccionada.");r.onload=()=>cb(r.result);r.readAsDataURL(file)}
+function fileToData(file,cb){if(!file)return;if((file.type||"").startsWith("image/"))return optimizeImageFile(file,cb);const r=new FileReader();r.onload=()=>cb(r.result);r.onerror=()=>alert("No se pudo leer el archivo seleccionado.");r.readAsDataURL(file)}
+function filesToData(files,cb){const list=[...files];if(!list.length)return cb([]);Promise.all(list.map(f=>new Promise(res=>fileToData(f,res)))).then(cb)}
+function fileToMedia(file,cb){if(!file)return;const isVideo=(file.type||"").startsWith("video/");if(isVideo&&file.size>8*1024*1024){alert("Ese video es demasiado pesado para la versión local. Usá uno de menos de 8 MB o una foto.");return}if(!isVideo)return optimizeImageFile(file,src=>cb({src,type:"image",name:file.name||"foto"}));const r=new FileReader();r.onload=()=>cb({src:r.result,type:"video",name:file.name||"video"});r.onerror=()=>alert("No se pudo leer el video seleccionado.");r.readAsDataURL(file)}
+function fileToNewsMedia(file,cb){if(!file)return;if((file.type||"").startsWith("video/"))return fileToMedia(file,cb);const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{const max=2400,scale=Math.min(1,max/Math.max(img.width,img.height)),w=Math.max(1,Math.round(img.width*scale)),h=Math.max(1,Math.round(img.height*scale)),c=document.createElement("canvas");c.width=w;c.height=h;const x=c.getContext("2d");x.drawImage(img,0,0,w,h);let src;try{src=c.toDataURL("image/jpeg",.94)}catch(e){src=r.result}cb({src,type:"image",name:file.name||"foto"})};img.onerror=()=>cb({src:r.result,type:"image",name:file.name||"foto"});img.src=r.result};r.readAsDataURL(file)}
+function filesToMedia(files,cb){const list=[...files];if(!list.length)return cb([]);Promise.all(list.map(f=>new Promise(res=>fileToMedia(f,res)))).then(cb)}
+function normMedia(x){return typeof x==="string"?{src:x,type:"image"}:{src:"",type:"image",...(x||{})}}
+function flash(id,text="✓ Cambios guardados"){const el=document.getElementById(id);if(!el)return;el.textContent=text;setTimeout(()=>el.textContent="",2600)}
+function touchStatus(){const e=document.getElementById("globalStatus");if(!e)return;e.textContent="● GUARDADO";e.classList.add("saved");clearTimeout(touchStatus.t);touchStatus.t=setTimeout(()=>{e.textContent="● LISTO";e.classList.remove("saved")},1600)}
+
+// LOGIN / NAVEGACIÓN
+const login=document.getElementById("adminLogin"),shell=document.getElementById("adminShell");
+function showAdmin(){login.hidden=true;shell.hidden=false;loadAll()}
+function showLogin(){login.hidden=false;shell.hidden=true}
+document.addEventListener("DOMContentLoaded",async()=>{
+  const restored=await durableRestore();
+  mirrorExistingSettings();
+
+  if(sessionStorage.getItem(LOGIN_KEY)){
+    showAdmin();
+    await syncAdminWithRemote();
+  }else{
+    showLogin();
+    if(restored)loadAll?.();
+  }
+});
+
+document.getElementById("loginForm").onsubmit=async(e)=>{
+  e.preventDefault();
+
+  const email=document.getElementById("loginEmail").value.trim();
+  const password=document.getElementById("loginPassword").value;
+
+  const r=await fetch(
+    SUPABASE_URL+"/auth/v1/token?grant_type=password",
+    {
+      method:"POST",
+      headers:{
+        "apikey":SUPABASE_KEY,
+        "Content-Type":"application/json"
+      },
+      body:JSON.stringify({email,password})
+    }
+  );
+
+  const j=await r.json();
+
+  if(!r.ok){
+    document.getElementById("loginError").textContent="Correo o contraseña incorrectos.";
+    return;
+  }
+
+  storeAdminSession(j);
+  showAdmin();
+  await syncAdminWithRemote();
+};
+
+document.getElementById("logoutBtn").onclick=()=>{
+  clearAdminSession();
+  showLogin();
+};
+function openTab(name){document.querySelectorAll(".tab,.tab-panel").forEach(x=>x.classList.remove("active"));document.querySelector(`.tab[data-tab="${name}"]`)?.classList.add("active");document.getElementById("tab-"+name)?.classList.add("active");window.scrollTo({top:0,behavior:"smooth"})}
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>openTab(b.dataset.tab));
+document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>openTab(b.dataset.go));
+
+// RESUMEN
+function refreshSummary(){const models=data.models||[];document.getElementById("publishedCount").textContent=models.filter(m=>m.published&&!m.placeholder).length;document.getElementById("draftCount").textContent=models.filter(m=>!m.placeholder&&!m.published).length;document.getElementById("portfolioCount").textContent=models.reduce((n,m)=>n+(m.gallery?.length||0),0);document.getElementById("aboutPhotoCount").textContent=(getAbout().photos||[]).length}
+
+// INICIO
+function homeDefaults(){return {values:"FASHION\nTALENT\nIDENTITY",brand:"CARESSANO",subtitle:"MODELS AGENCY",brandX:0,brandY:0,brandVisible:true}}
+function getHome(){try{return {...homeDefaults(),...(JSON.parse(siteStorage.getItem(HOME_KEY))||{})}}catch(e){return homeDefaults()}}
+function loadHome(){const f=document.getElementById("homeForm"),h=getHome();if(!f)return;Object.keys(homeDefaults()).forEach(k=>{if(!f.elements[k])return;if(f.elements[k].type==="checkbox")f.elements[k].checked=!!h[k];else f.elements[k].value=h[k]});document.querySelectorAll("[data-home-output]").forEach(o=>{const i=f.elements[o.dataset.homeOutput];if(i)o.textContent=i.value+"%"})}
+function readField(el){if(!el)return undefined;if(el.type==="checkbox")return el.checked;if(el.type==="range"||el.type==="number")return Number(el.value);return el.value.trim()}
+function persistPartial(key,defaults,form,keys,area){let raw={};try{raw=JSON.parse(siteStorage.getItem(key))||{}}catch(e){};keys.forEach(k=>{if(form.elements[k])raw[k]=readField(form.elements[k])});safeSet(key,raw,area)}
+function resetPartial(key,form,keys,defaults,area){let raw={};try{raw=JSON.parse(siteStorage.getItem(key))||{}}catch(e){};keys.forEach(k=>delete raw[k]);if(Object.keys(raw).length)siteStorage.setItem(key,JSON.stringify(raw));else siteStorage.removeItem(key);keys.forEach(k=>{const el=form.elements[k];if(!el)return;const v=defaults[k];if(el.type==="checkbox")el.checked=!!v;else el.value=v});notifyPublic(area);touchStatus()}
+document.getElementById("homeForm")?.addEventListener("submit",e=>{e.preventDefault();const f=e.currentTarget,h={};Object.keys(homeDefaults()).forEach(k=>h[k]=readField(f.elements[k]));safeSet(HOME_KEY,h,"home");flash("homeSaveMsg","✓ Todo Inicio actualizado")});document.getElementById("homeForm")?.addEventListener("input",e=>{const o=document.querySelector(`[data-home-output="${e.target.name}"]`);if(o)o.textContent=e.target.value+"%"});
+document.querySelectorAll("[data-save-home]").forEach(b=>b.addEventListener("click",()=>{const f=document.getElementById("homeForm"),keys=b.dataset.saveHome.split(",");persistPartial(HOME_KEY,homeDefaults(),f,keys,"home");const msg=b.parentElement.querySelector("[data-msg-home]");if(msg){msg.textContent="✓ Bloque guardado";setTimeout(()=>msg.textContent="",2200)}}));
+document.querySelectorAll("[data-reset-home]").forEach(b=>b.addEventListener("click",()=>{const f=document.getElementById("homeForm"),keys=b.dataset.resetHome.split(",");resetPartial(HOME_KEY,f,keys,homeDefaults(),"home");loadHome();const msg=b.parentElement.querySelector("[data-msg-home]");if(msg){msg.textContent="✓ Usa nuevamente el código";setTimeout(()=>msg.textContent="",2200)}}));
+document.getElementById("resetHome")?.addEventListener("click",()=>{if(confirm("¿Restaurar todo Inicio desde los archivos del proyecto?")){siteStorage.removeItem(HOME_KEY);loadHome();touchStatus();notifyPublic("home");flash("homeSaveMsg","✓ Inicio restaurado desde código")}});
+
+// NOVEDADES · ENLACES EDITORIALES
+const NEWS_KEY="caressanoNewsDemo",NEWS_STYLE_KEY="caressanoNewsStyleDemo";
+function newsDefaults(){return [
+  {title:"CASTING ABIERTO",subtitle:"Enterate de convocatorias, fechas y oportunidades de Caressano.",url:"https://www.instagram.com/caressanomodels/",cta:"VER NOVEDAD"},
+  {title:"CARESSANO NEWS",subtitle:"Novedades, eventos y anuncios de la agencia.",url:"https://www.instagram.com/caressanomodels/",cta:"VER MÁS"}
+]}
+function normalizeNewsItem(n={}){return {title:n.title||"NUEVA NOVEDAD",subtitle:n.subtitle||"Escribí un subtítulo.",url:n.url||"",cta:n.cta||"VER NOVEDAD"}}
+function getNews(){try{const v=JSON.parse(siteStorage.getItem(NEWS_KEY));return Array.isArray(v)&&v.length?v.map(normalizeNewsItem):newsDefaults()}catch(e){return newsDefaults()}}
+let newsItems=getNews();
+function saveNews(){newsItems=newsItems.map(normalizeNewsItem);return safeSet(NEWS_KEY,newsItems,"news")}
+function newsStyleDefaults(){return {image:"",sectionBg:"#090909",textColor:"#ffffff",bodyColor:"#ffffff",buttonBg:"#ffffff",buttonText:"#090909",imageWidth:46,imageHeight:620,imageFit:"cover",imageFilter:"natural"}}
+function getNewsStyle(){try{return {...newsStyleDefaults(),...(JSON.parse(siteStorage.getItem(NEWS_STYLE_KEY))||{})}}catch(e){return newsStyleDefaults()}}
+let newsStyle=getNewsStyle();
+function renderNewsStyleAdmin(){
+  newsStyle=getNewsStyle();
+  const up=document.getElementById("newsFeatureUpload"),input=document.getElementById("newsFeatureInput");
+  if(up){up.classList.toggle("has-photo",!!newsStyle.image);up.style.backgroundImage=newsStyle.image?`url("${String(newsStyle.image).replace(/"/g,'%22')}")`:""}
+  [["newsSectionBg","sectionBg"],["newsTextColor","textColor"],["newsBodyColor","bodyColor"],["newsButtonBg","buttonBg"],["newsButtonText","buttonText"],["newsImageWidth","imageWidth"],["newsImageHeight","imageHeight"],["newsImageFit","imageFit"],["newsImageFilter","imageFilter"]].forEach(([id,k])=>{const el=document.getElementById(id);if(el)el.value=newsStyle[k]}); const nw=document.getElementById("newsImageWidthOut"),nh=document.getElementById("newsImageHeightOut");if(nw)nw.textContent=newsStyle.imageWidth+"%";if(nh)nh.textContent=newsStyle.imageHeight+"px";
+  if(input)input.value="";
+}
+function collectNewsStyle(){[["newsSectionBg","sectionBg"],["newsTextColor","textColor"],["newsBodyColor","bodyColor"],["newsButtonBg","buttonBg"],["newsButtonText","buttonText"],["newsImageWidth","imageWidth"],["newsImageHeight","imageHeight"],["newsImageFit","imageFit"],["newsImageFilter","imageFilter"]].forEach(([id,k])=>{const el=document.getElementById(id);if(el)newsStyle[k]=(el.type==="range"?Number(el.value):el.value)})}
+function renderNewsAdmin(){
+  const r=document.getElementById("newsAdminList");if(!r)return;
+  r.innerHTML=newsItems.map((n,i)=>`<article class="admin-news-link-item"><div class="admin-news-index">${String(i+1).padStart(2,"0")}</div><div class="admin-news-fields"><label>Título<input data-news="${i}" data-k="title" value="${esc(n.title)}"></label><label>Subtítulo<textarea data-news="${i}" data-k="subtitle" rows="2">${esc(n.subtitle)}</textarea></label><label>Enlace<input data-news="${i}" data-k="url" type="url" placeholder="https://..." value="${esc(n.url)}"></label><label>Texto del enlace<input data-news="${i}" data-k="cta" value="${esc(n.cta||'VER NOVEDAD')}"></label><button type="button" class="admin-danger" data-news-remove="${i}">ELIMINAR NOVEDAD</button></div></article>`).join("");
+  r.querySelectorAll("[data-news]").forEach(el=>el.oninput=()=>{newsItems[+el.dataset.news][el.dataset.k]=el.value});
+  r.querySelectorAll("[data-news-remove]").forEach(b=>b.onclick=()=>{newsItems.splice(+b.dataset.newsRemove,1);renderNewsAdmin()});
+}
+
+document.getElementById("newsImageWidth")?.addEventListener("input",e=>{const o=document.getElementById("newsImageWidthOut");if(o)o.textContent=e.target.value+"%"});
+document.getElementById("newsImageHeight")?.addEventListener("input",e=>{const o=document.getElementById("newsImageHeightOut");if(o)o.textContent=e.target.value+"px"});
+document.getElementById("addNewsItem")?.addEventListener("click",()=>{newsItems.push({title:"NUEVA NOVEDAD",subtitle:"Escribí un subtítulo.",url:"",cta:"VER NOVEDAD"});renderNewsAdmin()});
+document.getElementById("newsFeatureInput")?.addEventListener("change",e=>{const file=e.currentTarget.files?.[0];if(!file)return;fileToNewsMedia(file,media=>{if(media?.type!=="image"){alert("Para este bloque usá una imagen.");return}newsStyle.image=media.src;const up=document.getElementById("newsFeatureUpload");if(up){up.classList.add("has-photo");up.style.backgroundImage=`url("${String(media.src).replace(/"/g,'%22')}")`}flash("newsSaveMsg","✓ Foto lista. Tocá GUARDAR NOVEDADES")})});
+document.getElementById("removeNewsFeature")?.addEventListener("click",()=>{newsStyle.image="";const up=document.getElementById("newsFeatureUpload");if(up){up.classList.remove("has-photo");up.style.backgroundImage=""}flash("newsSaveMsg","✓ Foto quitada. Tocá GUARDAR NOVEDADES")});
+document.getElementById("saveNewsSection")?.addEventListener("click",()=>{collectNewsStyle();const a=saveNews(),b=safeSet(NEWS_STYLE_KEY,newsStyle,"news");if(a&&b){notifyPublic("news");flash("newsSaveMsg","✓ Novedades guardadas y publicadas")}});
+document.getElementById("resetNewsSection")?.addEventListener("click",()=>{if(confirm("¿Restaurar Novedades desde el código?")){siteStorage.removeItem(NEWS_KEY);siteStorage.removeItem(NEWS_STYLE_KEY);newsItems=getNews();newsStyle=getNewsStyle();renderNewsAdmin();renderNewsStyleAdmin();notifyPublic("news");flash("newsSaveMsg","✓ Novedades restauradas desde código")}});
+
+// BANNER EDITORIAL
+function bannerDefaults(){return {enabled:true,mode:"photos",height:280,speed:82,gap:24,overlay:3,topSpace:42,itemWidth:26,radius:4,fade:10,borderWidth:1,media:[1,2,3,4,5].map(i=>({src:`images/valentin-cabral/0${i}.jpg`,type:"image"}))}}
+function getBanner(){try{return {...bannerDefaults(),...(JSON.parse(siteStorage.getItem(BANNER_KEY))||{})}}catch(e){return bannerDefaults()}}
+let banner=getBanner();
+function saveBanner(){return safeSet(BANNER_KEY,banner,"banner")}
+function renderBannerAdmin(reload=false){if(reload)banner=getBanner();const list=document.getElementById("bannerMediaList");if(!list)return;document.getElementById("bannerEnabled").checked=!!banner.enabled;const bm=document.getElementById("bannerMode");if(bm){bm.value=banner.mode||"photos";bm.onchange=e=>banner.mode=e.target.value;}[["bannerHeight","height","px"],["bannerSpeed","speed"," s"],["bannerGap","gap","px"],["bannerOverlay","overlay","%"],["bannerTopSpace","topSpace","px"],["bannerItemWidth","itemWidth","vw"],["bannerRadius","radius","px"],["bannerFade","fade","%"],["bannerBorderWidth","borderWidth","px"]].forEach(([id,k,u])=>{const el=document.getElementById(id),out=document.getElementById(id+"Out");if(el){el.value=banner[k];if(out)out.textContent=banner[k]+u;el.oninput=()=>{banner[k]=+el.value;if(out)out.textContent=el.value+u}}});document.getElementById("bannerEnabled").onchange=e=>{banner.enabled=e.target.checked};list.innerHTML=(banner.media||[]).map((raw,i)=>{const m=normMedia(raw);return `<span class="admin-media-thumb">${m.type==="video"?`<video src="${m.src}" muted playsinline></video>`:`<i style="background-image:url('${m.src}')"></i>`}<button type="button" data-banner-remove="${i}" aria-label="Eliminar">×</button><small>${m.type==="video"?"VIDEO":"FOTO"}</small></span>`}).join("")||'<p class="muted">Todavía no hay medios en el banner.</p>';list.querySelectorAll("[data-banner-remove]").forEach(b=>b.onclick=()=>{banner.media.splice(+b.dataset.bannerRemove,1);if(saveBanner()){renderBannerAdmin(false);flash("bannerSaveMsg","✓ Foto eliminada del banner")}})}
+document.getElementById("bannerMediaInput")?.addEventListener("change",e=>{const input=e.currentTarget;filesToMedia(input.files,items=>{if(!items?.length)return;banner.media=[...(banner.media||[]),...items];if(saveBanner()){renderBannerAdmin(false);flash("bannerSaveMsg",`✓ ${items.length} archivo(s) agregado(s) al banner`)}input.value=""})});
+document.getElementById("saveBannerSection")?.addEventListener("click",()=>{saveBanner();flash("bannerSaveMsg","✓ Banner guardado")});
+document.getElementById("resetBannerSection")?.addEventListener("click",()=>{if(confirm("¿Restaurar el banner desde el código?")){siteStorage.removeItem(BANNER_KEY);banner=getBanner();renderBannerAdmin();notifyPublic("banner");flash("bannerSaveMsg","✓ Banner restaurado desde código")}});
+
+// TEXTOS DE LA PÁGINA MODELOS
+function modelsCopyDefaults(){return {introKicker:"CARESSANO / TALENTO",introTitle:"Talent &",introAccent:"Discipline.",introCopy:"Una selección de perfiles representados por Caressano. Explorá cada perfil para conocer su identidad, medidas y portfolio.",introTitleColor:"#111111",introTitleFont:"\'Bodoni Moda\', Didot, serif",introTitleSize:"82",boardKicker:"OUR BOARD",boardTitle:"Modelos.",boardTitleColor:"#f3f3ef",boardTitleFont:"\'Bodoni Moda\', Didot, serif",boardTitleSize:"72",castingTitle:"¿Querés ser parte de Caressano Models?",castingTitleColor:"#f3f3ef",castingTitleFont:"\'Bodoni Moda\', Didot, serif",castingTitleSize:"64",profilePortfolioKicker:"PORTFOLIO",profilePortfolioTitle:"Presencia.",profilePortfolioAccent:"Identidad."}}
+function getModelsCopy(){try{return {...modelsCopyDefaults(),...(JSON.parse(siteStorage.getItem(MODELS_COPY_KEY))||{})}}catch(e){return modelsCopyDefaults()}}
+function loadModelsCopy(){const f=document.getElementById("modelsCopyForm"),m=getModelsCopy();if(!f)return;populateFonts();Object.entries(m).forEach(([k,v])=>{if(f.elements[k])f.elements[k].value=v})}
+document.getElementById("modelsCopyForm")?.addEventListener("submit",e=>{e.preventDefault();const f=e.currentTarget,m={};Object.keys(modelsCopyDefaults()).forEach(k=>{const el=f.elements[k];m[k]=el?.type==="number"?Number(el.value):(el?.value||"").trim()});safeSet(MODELS_COPY_KEY,m,"models-copy");flash("modelsCopySaveMsg","✓ Textos de Modelos actualizados")});
+document.getElementById("resetModelsCopy")?.addEventListener("click",()=>{if(confirm("¿Restaurar los textos originales de la página Modelos?")){siteStorage.removeItem(MODELS_COPY_KEY);loadModelsCopy();touchStatus();notifyPublic("models-copy");flash("modelsCopySaveMsg","✓ Textos restaurados")}});
+
+function loadPostularButtonControls(){const v=getVisual();const a=document.getElementById("postularButtonBg"),b=document.getElementById("postularButtonText");if(a)a.value=v.applyButtonBg||"#f2f2ee";if(b)b.value=v.applyButtonText||"#111111"}
+document.getElementById("savePostularButton")?.addEventListener("click",()=>{let raw={};try{raw=JSON.parse(siteStorage.getItem(VISUAL_KEY))||{}}catch(e){};raw.applyButtonBg=document.getElementById("postularButtonBg")?.value||"#f2f2ee";raw.applyButtonText=document.getElementById("postularButtonText")?.value||"#111111";safeSet(VISUAL_KEY,raw,"visual");flash("postularButtonMsg","✓ Solo el botón POSTULARME fue guardado")});
+document.getElementById("resetPostularButton")?.addEventListener("click",()=>{let raw={};try{raw=JSON.parse(siteStorage.getItem(VISUAL_KEY))||{}}catch(e){};delete raw.applyButtonBg;delete raw.applyButtonText;if(Object.keys(raw).length)siteStorage.setItem(VISUAL_KEY,JSON.stringify(raw));else siteStorage.removeItem(VISUAL_KEY);loadPostularButtonControls();notifyPublic("visual");flash("postularButtonMsg","✓ Botón restaurado")});
+
+// MODELOS
+let modelSearch="",modelFilter="all";
+function modelStatus(m){return m.placeholder?"placeholder":m.published?"published":"draft"}
+function filteredModels(){return (data.models||[]).map((m,i)=>({m,i})).filter(({m})=>{const q=modelSearch.toLowerCase(),matches=!q||`${m.name} ${m.category} ${m.height} ${m.details}`.toLowerCase().includes(q);const st=modelStatus(m);return matches&&(modelFilter==="all"||st===modelFilter)})}
+function renderModels(){const root=document.getElementById("modelAdminList");if(!root)return;const list=filteredModels();document.getElementById("modelResultCount").textContent=`${list.length} resultado${list.length===1?"":"s"}`;root.innerHTML=list.map(({m,i})=>`<article class="admin-model-v5 ${m.placeholder?"is-placeholder":""}">
+<div class="admin-thumb-v5" style="${m.image?`background-image:url('${m.image}')`:""}">${!m.image?`<span>${m.placeholder?"ESPACIO VACÍO":"SIN FOTO"}</span>`:""}<i>${m.placeholder?"VACÍO":m.published?"PUBLICADO":"BORRADOR"}</i></div>
+<div class="admin-model-fields"><div class="admin-model-top"><div><span>${esc(m.category||"MODEL")}</span><h3>${esc(m.name)}</h3></div><div class="admin-model-top-actions"><button class="admin-icon-btn" data-up="${i}" title="Subir">↑</button><button class="admin-icon-btn" data-down="${i}" title="Bajar">↓</button><button class="admin-link-btn" data-toggle="${i}">${m.placeholder?"CONVERTIR":"EDITAR"}</button></div></div>
+<div class="admin-model-editor" id="modelEditor-${i}" hidden>
+<div class="admin-form-two"><label>Nombre<input data-i="${i}" data-k="name" value="${esc(m.name)}"></label><label>Categoría<input data-i="${i}" data-k="category" value="${esc(m.category)}"></label></div>
+<div class="admin-form-two"><label>Altura<input data-i="${i}" data-k="height" value="${esc(m.height)}" placeholder="Ej. 184 CM"></label><label>Datos / medidas<input data-i="${i}" data-k="details" value="${esc(m.details)}"></label></div>
+<label>Descripción<textarea data-i="${i}" data-k="bio" rows="4">${esc(m.bio)}</textarea></label>
+<div class="admin-form-two"><label>Foto principal<input type="file" accept="image/*" data-file="${i}"><small class="admin-field-note">Recomendado: foto vertical de buena calidad.</small></label><label>Fotos / videos del portfolio<input type="file" accept="image/*,video/*" multiple data-gallery="${i}"><small class="admin-field-note">${m.gallery?.length||0} medio(s) cargado(s)</small></label></div>
+<div class="admin-model-photo-editor"><p class="admin-eyebrow">EDICIÓN DE FOTO · ESTE MODELO</p><div class="admin-form-three"><label>Ancho tarjeta (%)<input type="number" min="40" max="100" step="1" data-i="${i}" data-k="photoWidth" value="${Number(m.photoWidth)||100}"></label><label>Alto tarjeta (px)<input type="number" min="260" max="900" step="10" data-i="${i}" data-k="photoHeight" value="${Number(m.photoHeight)||390}"></label><label>Encuadre<select data-i="${i}" data-k="photoFit"><option value="cover" ${(m.photoFit||"cover")==="cover"?"selected":""}>Cubrir recuadro</option><option value="contain" ${m.photoFit==="contain"?"selected":""}>Foto completa</option></select></label><label>Filtro<select data-i="${i}" data-k="photoFilter"><option value="natural" ${(m.photoFilter||"natural")==="natural"?"selected":""}>Color natural</option><option value="mono" ${m.photoFilter==="mono"?"selected":""}>Blanco y negro</option></select></label></div><div class="admin-form-two"><label>Alto foto principal del perfil (px)<input type="number" min="360" max="1100" step="10" data-i="${i}" data-k="profilePhotoHeight" value="${Number(m.profilePhotoHeight)||720}"></label><label>Encuadre principal<select data-i="${i}" data-k="profilePhotoFit"><option value="contain" ${(m.profilePhotoFit||"contain")==="contain"?"selected":""}>Foto completa</option><option value="cover" ${m.profilePhotoFit==="cover"?"selected":""}>Cubrir recuadro</option></select></label></div></div>
+${m.gallery?.length?`<div class="admin-gallery-mini admin-gallery-editable">${m.gallery.map((raw,j)=>{const media=normMedia(raw),h=Number(media.height)||520,w=Number(media.width)||100,zoom=Number(media.zoom)||100,x=Number(media.x??50),y=Number(media.y??50),fit=media.fit||"cover",filter=media.filter||"natural";return `<span class="admin-media-thumb admin-media-edit">${media.type==="video"?`<video src="${media.src}" muted playsinline></video>`:`<i style="background-image:url('${media.src}')"></i>`}<button type="button" data-remove-gallery="${i}:${j}" title="Quitar">×</button><small>${media.type==="video"?"VIDEO":"FOTO"} ${j+1}</small><label>Ancho (%)<input type="number" min="40" max="100" value="${w}" data-gallery-setting="${i}:${j}:width"></label><label>Alto (px)<input type="number" min="260" max="1100" step="10" value="${h}" data-gallery-setting="${i}:${j}:height"></label><label>Zoom (%)<input type="number" min="80" max="220" value="${zoom}" data-gallery-setting="${i}:${j}:zoom"></label><label>Posición X (%)<input type="number" min="0" max="100" value="${x}" data-gallery-setting="${i}:${j}:x"></label><label>Posición Y (%)<input type="number" min="0" max="100" value="${y}" data-gallery-setting="${i}:${j}:y"></label><label>Encuadre<select data-gallery-setting="${i}:${j}:fit"><option value="cover" ${fit==="cover"?"selected":""}>Cubrir</option><option value="contain" ${fit==="contain"?"selected":""}>Completa</option></select></label>${media.type==="image"?`<label>Filtro<select data-gallery-setting="${i}:${j}:filter"><option value="natural" ${filter==="natural"?"selected":""}>Color</option><option value="mono" ${filter==="mono"?"selected":""}>B&N</option></select></label>`:""}</span>`}).join("")}</div>`:""}
+<div class="admin-model-actions"><button class="admin-primary small" type="button" data-save="${i}">GUARDAR</button><button class="admin-publish" type="button" data-publish="${i}">${m.published?"DESPUBLICAR":"PUBLICAR"}</button>${!m.placeholder?`<a class="admin-publish admin-a-btn" href="modelo.html?id=${encodeURIComponent(m.id)}" target="_blank">VER PERFIL ↗</a>`:""}<button class="admin-publish" type="button" data-duplicate="${i}">DUPLICAR</button><button class="admin-danger" type="button" data-delete="${i}">ELIMINAR</button><span id="modelMsg-${i}" class="admin-save-msg"></span></div>
+</div></div></article>`).join("")||'<div class="admin-empty-state">No hay modelos que coincidan con el filtro.</div>';
+ bindModelActions(root)}
+function collectModelFields(root,i){root.querySelectorAll(`[data-i="${i}"]`).forEach(el=>data.models[i][el.dataset.k]=el.value.trim())}
+function reopenEditor(i){setTimeout(()=>{const e=document.getElementById(`modelEditor-${i}`);if(e)e.hidden=false},0)}
+function moveModel(i,dir){const j=i+dir;if(j<0||j>=data.models.length)return;[data.models[i],data.models[j]]=[data.models[j],data.models[i]];saveData(data);renderModels();refreshSummary()}
+function bindModelActions(root){
+ root.querySelectorAll("[data-toggle]").forEach(b=>b.onclick=()=>{const e=document.getElementById(`modelEditor-${b.dataset.toggle}`);e.hidden=!e.hidden});
+ root.querySelectorAll("[data-up]").forEach(b=>b.onclick=()=>moveModel(+b.dataset.up,-1));root.querySelectorAll("[data-down]").forEach(b=>b.onclick=()=>moveModel(+b.dataset.down,1));
+ root.querySelectorAll("[data-save]").forEach(b=>b.onclick=()=>{const i=+b.dataset.save;collectModelFields(root,i);const m=data.models[i];m.placeholder=false;if(m.name)m.id=slugify(m.name);saveData(data);refreshSummary();renderModels();reopenEditor(i);setTimeout(()=>flash(`modelMsg-${i}`),10)});
+ root.querySelectorAll("[data-publish]").forEach(b=>b.onclick=()=>{const i=+b.dataset.publish;collectModelFields(root,i);const m=data.models[i];if(!m.name||!m.image){alert("Para publicar, cargá al menos el nombre y una foto principal.");return}m.placeholder=false;m.published=!m.published;m.id=slugify(m.name);saveData(data);refreshSummary();renderModels();reopenEditor(i)});
+ root.querySelectorAll("[data-duplicate]").forEach(b=>b.onclick=()=>{const i=+b.dataset.duplicate,n=clone(data.models[i]);n.id=slugify(n.name+" copia "+Date.now());n.name=n.name+" — COPIA";n.published=false;n.placeholder=false;data.models.splice(i+1,0,n);saveData(data);refreshSummary();renderModels();reopenEditor(i+1)});
+ root.querySelectorAll("[data-delete]").forEach(b=>b.onclick=()=>{if(confirm("¿Eliminar este perfil?")){data.models.splice(+b.dataset.delete,1);saveData(data);refreshSummary();renderModels()}});
+ root.querySelectorAll("[data-file]").forEach(inp=>inp.onchange=e=>fileToData(e.target.files[0],src=>{const i=+inp.dataset.file;data.models[i].image=src;data.models[i].placeholder=false;saveData(data);renderModels();reopenEditor(i)}));
+ root.querySelectorAll("[data-gallery]").forEach(inp=>inp.onchange=e=>filesToMedia(e.target.files,items=>{const i=+inp.dataset.gallery,m=data.models[i];m.gallery=[...(m.gallery||[]),...items];m.placeholder=false;saveData(data);renderModels();reopenEditor(i)}));
+ root.querySelectorAll("[data-gallery-setting]").forEach(el=>el.onchange=()=>{const [i,j,key]=el.dataset.gallerySetting.split(":");const idx=+i,gidx=+j,current=normMedia(data.models[idx].gallery[gidx]);current[key]=["height","width","zoom","x","y"].includes(key)?Number(el.value):el.value;data.models[idx].gallery[gidx]=current;saveData(data);flash(`modelMsg-${idx}`,"✓ Edición de foto guardada")});
+ root.querySelectorAll("[data-remove-gallery]").forEach(b=>b.onclick=()=>{const [i,j]=b.dataset.removeGallery.split(":").map(Number);data.models[i].gallery.splice(j,1);saveData(data);renderModels();reopenEditor(i)});
+}
+document.getElementById("newModel")?.addEventListener("click",()=>{data.models.unshift({id:"modelo-"+Date.now(),name:"NUEVO MODELO",category:"MODEL / NEW FACE",bio:"",height:"",details:"",image:"",gallery:[],placeholder:false,published:false});saveData(data);refreshSummary();modelFilter="all";document.getElementById("modelFilter").value="all";renderModels();reopenEditor(0)});
+document.getElementById("modelSearch")?.addEventListener("input",e=>{modelSearch=e.target.value;renderModels()});document.getElementById("modelFilter")?.addEventListener("change",e=>{modelFilter=e.target.value;renderModels()});
+
+// CONTACTO
+function loadContact(){const f=document.getElementById("contactForm");if(!f)return;const c=data.content?.contact||{};f.instagram.value=(c.instagram||"caressanomodels").replace(/^@/,"");f.phone.value=c.phone||"";f.email.value=c.email||"";f.location.value=c.location||"Río Cuarto, Córdoba, Argentina";f.maps.value=c.maps||"https://www.google.com/maps/search/?api=1&query=R%C3%ADo+Cuarto%2C+C%C3%B3rdoba%2C+Argentina";updateContactPreview()}
+function updateContactPreview(){const f=document.getElementById("contactForm"),p=document.getElementById("contactPreview");if(!f||!p)return;p.innerHTML=`<b>@${esc(f.instagram.value||"caressanomodels")}</b><span>${esc(f.phone.value||"Sin WhatsApp")}</span><span>${esc(f.email.value||"Sin email")}</span><span>${esc(f.location.value||"Sin ubicación")}</span>`}
+document.getElementById("contactForm")?.addEventListener("input",updateContactPreview);document.getElementById("contactForm")?.addEventListener("submit",e=>{e.preventDefault();const f=e.currentTarget;data.content=data.content||{};data.content.contact={...(data.content.contact||{}),instagram:f.instagram.value.trim().replace(/^@/,""),socials:"Instagram",phone:f.phone.value.trim(),email:f.email.value.trim(),location:f.location.value.trim(),maps:f.maps.value.trim()};saveData(data);flash("contactSaveMsg","✓ Contacto actualizado")});
+
+// NOSOTROS DINÁMICO
+function defaultPhotoSlot(){return {src:"",width:100,height:520,x:50,y:50,zoom:100,fit:"cover",filter:"natural"}}
+function normalizeAboutPhoto(p){const out=typeof p==="string"?{...defaultPhotoSlot(),src:p}:{...defaultPhotoSlot(),...(p||{})};out.width=Math.max(40,Math.min(100,+out.width||100));out.height=Math.max(180,Math.min(900,+out.height||520));out.x=Math.max(0,Math.min(100,+out.x||50));out.y=Math.max(0,Math.min(100,+out.y||50));out.zoom=Math.max(80,Math.min(220,+out.zoom||100));out.fit=out.fit==="contain"?"contain":"cover";return out}
+function aboutDefaults(){return {intro:"",introSize:16,blocks:[
+ {title:"NUESTRA HISTORIA",text:"Con 14 años de trayectoria, nuestra agencia se ha consolidado como un espacio de formación y desarrollo dentro del mundo de la moda y el modelaje. A lo largo de estos años, hemos acompañado a generaciones de modelos en la construcción de su identidad profesional, brindándoles formación, experiencia y las herramientas necesarias para desenvolverse con seguridad y excelencia. Nuestra mirada va más allá de la imagen: buscamos descubrir, potenciar y proyectar la personalidad y el talento de cada modelo, respetando su esencia y acompañándolo en el camino hacia su mejor versión.",titleSize:11,textSize:13},
+ {title:"FORMACIÓN Y MATERIAS",text:"Formamos modelos para desenvolverse con seguridad y profesionalismo en cada oportunidad.\n\n• Preparación para **castings y audiciones**\n• Presentación personal y desenvolvimiento profesional\n• Armado y proyección de imagen\n• Fotopose y expresión frente a cámara\n• Herramientas para el ámbito laboral del modelaje\n\nNuestro objetivo es brindar una formación que prepare a cada modelo para afrontar el mundo profesional con confianza, presencia y actitud.",titleSize:11,textSize:13},
+ {title:"PROYECCIÓN PROFESIONAL",text:"Formamos modelos para desenvolverse con seguridad y profesionalismo en cada oportunidad.\n\n• Preparación para **castings y audiciones**\n• Presentación personal y desenvolvimiento profesional\n• Armado y proyección de imagen\n• Fotopose y expresión frente a cámara\n• Herramientas para el ámbito laboral del modelaje\n\nNuestro objetivo es brindar una formación que prepare a cada modelo para **afrontar el mundo profesional con confianza, presencia y actitud**.",titleSize:11,textSize:13}],photos:Array.from({length:6},()=>defaultPhotoSlot()),banner:{enabled:false,mode:"photos",height:300,speed:82,gap:20,itemWidth:30,media:[]}}}
+function migrateLegacyAbout(raw){if(raw?.blocks)return raw;const d=aboutDefaults(),blocks=[];for(let i=1;i<=6;i++){const t=raw?.[`b${i}title`],x=raw?.[`b${i}text`];if(t||x)blocks.push({title:t||"CONTENIDO",text:x||"",titleSize:+raw?.[`b${i}titleSize`]||11,textSize:+raw?.[`b${i}textSize`]||13})}return {...d,...raw,blocks:blocks.length?blocks:d.blocks,photos:(raw?.photos||d.photos).map(normalizeAboutPhoto)}}
+function getAbout(){try{return migrateLegacyAbout(JSON.parse(siteStorage.getItem(ABOUT_KEY))||{})}catch(e){return aboutDefaults()}}
+let about=getAbout();
+function saveAbout(){const ok=safeSet(ABOUT_KEY,about,"about");if(ok)refreshSummary();return ok}
+function loadAbout(){about=getAbout();const f=document.getElementById("aboutForm");if(!f)return;f.intro.value=about.intro||"";f.introSize.value=about.introSize||16;renderAboutBlocks();renderAboutPhotos()}
+function renderAboutBlocks(){const r=document.getElementById("aboutBlocks");if(!r)return;r.innerHTML=(about.blocks||[]).map((b,i)=>`<article class="admin-content-block"><div class="admin-content-block-head"><span>BLOQUE ${String(i+1).padStart(2,"0")}</span><div><button type="button" class="admin-icon-btn" data-block-up="${i}">↑</button><button type="button" class="admin-icon-btn" data-block-down="${i}">↓</button><button type="button" class="admin-danger admin-small-danger" data-block-delete="${i}">ELIMINAR</button></div></div><label>Título<input data-block="${i}" data-block-key="title" value="${esc(b.title)}"></label><label>Texto<textarea rows="6" data-block="${i}" data-block-key="text">${esc(b.text)}</textarea></label><div class="admin-size-grid"><label>Tamaño título <input type="number" min="8" max="48" data-block="${i}" data-block-key="titleSize" value="${+b.titleSize||11}"><small>px</small></label><label>Tamaño texto <input type="number" min="10" max="32" data-block="${i}" data-block-key="textSize" value="${+b.textSize||13}"><small>px</small></label></div></article>`).join("");
+ r.querySelectorAll("[data-block]").forEach(el=>el.oninput=()=>{const i=+el.dataset.block,k=el.dataset.blockKey;about.blocks[i][k]=el.type==="number"?+el.value:el.value});r.querySelectorAll("[data-block-delete]").forEach(b=>b.onclick=()=>{if(confirm("¿Eliminar este bloque de contenido?")){about.blocks.splice(+b.dataset.blockDelete,1);saveAbout();renderAboutBlocks()}});r.querySelectorAll("[data-block-up]").forEach(b=>b.onclick=()=>moveAboutBlock(+b.dataset.blockUp,-1));r.querySelectorAll("[data-block-down]").forEach(b=>b.onclick=()=>moveAboutBlock(+b.dataset.blockDown,1))}
+function moveAboutBlock(i,d){const j=i+d;if(j<0||j>=about.blocks.length)return;[about.blocks[i],about.blocks[j]]=[about.blocks[j],about.blocks[i]];saveAbout();renderAboutBlocks()}
+document.getElementById("addAboutBlock")?.addEventListener("click",()=>{about.blocks.push({title:"NUEVO CONTENIDO",text:"",titleSize:11,textSize:13});saveAbout();renderAboutBlocks()});
+function renderAboutPhotos(){const r=document.getElementById("aboutPhotoSlots");if(!r)return;r.innerHTML=(about.photos||[]).map((raw,i)=>{const p=normalizeAboutPhoto(raw),m=normMedia(p.media||p.src);const preview=m.src?(m.type==="video"?`<video src="${m.src}" muted loop autoplay playsinline></video>`:`<i style="background-image:url('${m.src}');background-position:${p.x}% ${p.y}%;background-size:${p.fit==="contain"?"contain":(p.zoom===100?"cover":p.zoom+"%")} "></i>`):"";return `<article class="admin-photo-item grid-photo-item"><label class="admin-photo-upload ${m.src?"has-photo":""}" style="height:${Math.min(p.height,420)}px">${preview}<input type="file" accept="image/*" data-about-photo="${i}"><span>${m.src?"CAMBIAR FOTO":"+ CARGAR FOTO"}</span></label><div class="admin-photo-controls"><div class="admin-form-two"><label>Ancho (%)<input data-photo-width="${i}" type="number" min="40" max="100" value="${p.width}"></label><label>Alto (px)<input data-photo-height="${i}" type="number" min="180" max="900" value="${p.height}"></label><label>Zoom (%)<input data-photo-zoom="${i}" type="number" min="80" max="220" value="${p.zoom}"></label><label>Posición X (%)<input data-photo-x="${i}" type="number" min="0" max="100" value="${p.x}"></label><label>Posición Y (%)<input data-photo-y="${i}" type="number" min="0" max="100" value="${p.y}"></label><label>Encuadre<select data-photo-fit="${i}"><option value="cover" ${p.fit==="cover"?"selected":""}>Cubrir</option><option value="contain" ${p.fit==="contain"?"selected":""}>Foto completa</option></select></label><label>Filtro<select data-photo-filter="${i}"><option value="natural" ${p.filter==="natural"?"selected":""}>Color natural</option><option value="mono" ${p.filter==="mono"?"selected":""}>Blanco y negro</option></select></label></div><div class="admin-photo-row-actions"><button class="admin-icon-btn" type="button" data-photo-up="${i}">↑</button><button class="admin-icon-btn" type="button" data-photo-down="${i}">↓</button><button class="admin-danger" type="button" data-remove-about-photo="${i}">ELIMINAR</button></div></div></article>`}).join("");
+ r.querySelectorAll("[data-about-photo]").forEach(inp=>inp.onchange=e=>fileToMedia(e.target.files[0],media=>{if(media.type!=="image")return alert("En la cuadrícula de Nosotros usá fotos. El video se carga en el banner inferior.");const i=+inp.dataset.aboutPhoto;about.photos[i]=normalizeAboutPhoto(about.photos[i]);about.photos[i].media=media;about.photos[i].src=media.src;saveAbout();renderAboutPhotos()}));
+ const bind=(sel,key)=>r.querySelectorAll(sel).forEach(el=>el.onchange=()=>{const i=+(el.dataset[Object.keys(el.dataset)[0]]);about.photos[i]=normalizeAboutPhoto(about.photos[i]);about.photos[i][key]=el.type==="number"?Number(el.value):el.value;saveAbout();notifyPublic("about");renderAboutPhotos()});
+ bind("[data-photo-width]","width");bind("[data-photo-height]","height");bind("[data-photo-zoom]","zoom");bind("[data-photo-x]","x");bind("[data-photo-y]","y");bind("[data-photo-fit]","fit");bind("[data-photo-filter]","filter");
+ r.querySelectorAll("[data-remove-about-photo]").forEach(btn=>btn.onclick=()=>{if(confirm("¿Eliminar esta foto?")){about.photos.splice(+btn.dataset.removeAboutPhoto,1);saveAbout();renderAboutPhotos()}});r.querySelectorAll("[data-photo-up]").forEach(b=>b.onclick=()=>moveAboutPhoto(+b.dataset.photoUp,-1));r.querySelectorAll("[data-photo-down]").forEach(b=>b.onclick=()=>moveAboutPhoto(+b.dataset.photoDown,1));renderAboutBannerAdmin()}
+function aboutBannerDefaults(){return {enabled:false,mode:"photos",height:300,speed:82,gap:20,itemWidth:30,media:[]}}
+function renderAboutBannerAdmin(){const b=about.banner={...aboutBannerDefaults(),...(about.banner||{})},list=document.getElementById("aboutBannerMediaList");if(!list)return;document.getElementById("aboutBannerEnabled").checked=!!b.enabled;document.getElementById("aboutBannerMode").value=b.mode||"photos";document.getElementById("aboutBannerEnabled").onchange=e=>{b.enabled=e.target.checked;saveAbout()};document.getElementById("aboutBannerMode").onchange=e=>{b.mode=e.target.value;saveAbout()};[["aboutBannerHeight","height","px"],["aboutBannerSpeed","speed"," s"],["aboutBannerGap","gap","px"],["aboutBannerItemWidth","itemWidth","vw"]].forEach(([id,k,u])=>{const el=document.getElementById(id),o=document.getElementById(id+"Out");el.value=b[k];o.textContent=b[k]+u;el.oninput=()=>{b[k]=+el.value;o.textContent=el.value+u};el.onchange=()=>saveAbout()});list.innerHTML=(b.media||[]).map((raw,i)=>{const m=normMedia(raw);return `<span class="admin-media-thumb">${m.type==="video"?`<video src="${m.src}" muted></video>`:`<i style="background-image:url('${m.src}')"></i>`}<button type="button" data-about-banner-remove="${i}">×</button><small>${m.type==="video"?"VIDEO":"FOTO"}</small></span>`}).join("")||'<p class="muted">Sin medios cargados.</p>';list.querySelectorAll("[data-about-banner-remove]").forEach(x=>x.onclick=()=>{b.media.splice(+x.dataset.aboutBannerRemove,1);saveAbout();renderAboutBannerAdmin()})}
+document.getElementById("aboutBannerMediaInput")?.addEventListener("change",e=>{filesToMedia(e.currentTarget.files,items=>{about.banner={...aboutBannerDefaults(),...(about.banner||{})};about.banner.media.push(...items);saveAbout();renderAboutBannerAdmin();e.currentTarget.value=""})});
+function moveAboutPhoto(i,d){const j=i+d;if(j<0||j>=about.photos.length)return;[about.photos[i],about.photos[j]]=[about.photos[j],about.photos[i]];saveAbout();renderAboutPhotos()}
+document.getElementById("addAboutPhoto")?.addEventListener("click",()=>{about.photos.push(defaultPhotoSlot());saveAbout();renderAboutPhotos()});
+document.getElementById("aboutForm")?.addEventListener("submit",e=>{e.preventDefault();const f=e.currentTarget;about.intro=f.intro.value.trim();about.introSize=Math.max(10,Math.min(40,+f.introSize.value||16));saveAbout();flash("aboutSaveMsg","✓ Nosotros actualizado")});
+document.getElementById("saveAboutIntro")?.addEventListener("click",()=>{const f=document.getElementById("aboutForm");about.intro=f.intro.value.trim();about.introSize=Math.max(10,Math.min(40,+f.introSize.value||16));saveAbout();notifyPublic("about");flash("aboutIntroMsg","✓ Introducción guardada")});
+document.getElementById("resetAboutIntro")?.addEventListener("click",()=>{const raw=JSON.parse(siteStorage.getItem(ABOUT_KEY)||"{}");delete raw.intro;delete raw.introSize;if(Object.keys(raw).length)siteStorage.setItem(ABOUT_KEY,JSON.stringify(raw));else siteStorage.removeItem(ABOUT_KEY);loadAbout();notifyPublic("about");flash("aboutIntroMsg","✓ Introducción restaurada desde código")});
+
+// DISEÑO
+function visualDefaults(){return {heroImage:"",heroFilter:"natural",heroFit:"original",heroScale:100,heroPosX:50,heroPosY:50,bodyBg:"#f2f2f0",bodyText:"#111111",heroBg:"#ededeb",navBg:"#f4f4f2",navText:"#111111",logoColor:"#111111",heroTitle:"#090909",heroSub:"#222222",heroValues:"#252525",representBg:"#f7f7f5",representText:"#101010",representBody:"#555555",linkColor:"#111111",applyButtonBg:"#f2f2ee",applyButtonText:"#111111",bannerBg:"#080808",bannerBorder:"#242424",bannerOverlayColor:"#000000",modelsBg:"#0a0a0a",modelsText:"#f3f3ef",cardBg:"#141414",cardText:"#f3f3ef",aboutBg:"#f2f2f0",aboutTitleColor:"#111111",aboutText:"#444444",aboutNumber:"#888888",profileBg:"#f2f2f0",profileText:"#111111",mutedText:"#555555",darkBg:"#0a0a0a",darkText:"#f3f3ef",drawerBg:"#090909",drawerText:"#f4f4ef",accent:"#777777",fontBrand:"'Bodoni Moda', Didot, 'Bodoni MT', serif",fontHeroSub:"Tenor Sans, Arial, sans-serif",fontHeading:"'Bodoni Moda', Didot, 'Bodoni MT', serif",fontAccent:"'Cormorant Garamond', Didot, serif",fontBody:"Arial, Helvetica, sans-serif",fontNav:"Arial, Helvetica, sans-serif",fontButtons:"Arial, Helvetica, sans-serif",fontModel:"Didot, 'Bodoni MT', 'Times New Roman', serif",heroTitleSize:176,heroSubtitleSize:12,representTitleSize:58,modelsTitleSize:82,aboutTitleSize:150,profileTitleSize:105,bodySize:16,navSize:11,buttonSize:11,motionPreset:"soft",motionSpeed:125,imageZoom:102,modelImageStyle:"natural",galleryImageStyle:"natural",modelCardGap:18,modelCardRadius:0,modelPhotoHeight:470,modelHoverLift:6,sectionSpacing:110,bodyLineHeight:180,headingTracking:-3,navOpacity:94,navBlur:16,mediaRadius:0}}
+function getVisual(){try{return {...visualDefaults(),...(JSON.parse(siteStorage.getItem(VISUAL_KEY))||{})}}catch(e){return visualDefaults()}}
+let visual=getVisual();
+const FONT_CHOICES=[["Ballet · caligrafía dibujada","Ballet, cursive"],["Pinyon Script · firma couture","\'Pinyon Script\', cursive"],["Italianno · firma fina","Italianno, cursive"],
+ ["Bodoni Moda · Vogue","'Bodoni Moda', Didot, 'Bodoni MT', serif"],
+ ["Libre Bodoni · Editorial","'Libre Bodoni', Didot, serif"],
+ ["Cormorant Garamond · Couture","'Cormorant Garamond', Garamond, serif"],
+ ["Playfair Display · Magazine","'Playfair Display', Georgia, serif"],
+ ["Italiana · Fashion","Italiana, Didot, serif"],
+ ["Prata · Luxury","Prata, Georgia, serif"],
+ ["DM Serif Display","'DM Serif Display', Georgia, serif"],
+ ["Marcellus · Luxury Roman","Marcellus, Georgia, serif"],
+ ["Cinzel · High Fashion","Cinzel, Georgia, serif"],
+ ["Tenor Sans · Minimal","'Tenor Sans', Arial, sans-serif"],
+ ["Montserrat · Modern","Montserrat, Arial, sans-serif"],
+ ["Manrope · Clean","Manrope, Arial, sans-serif"],
+ ["Inter · UI","Inter, Arial, sans-serif"],
+ ["Allura · Cursiva","Allura, cursive"],
+ ["Great Vibes · Cursiva","'Great Vibes', cursive"],
+ ["Parisienne · Cursiva","Parisienne, cursive"],
+ ["Sacramento · Cursiva","Sacramento, cursive"],
+ ["Didot / Bodoni","Didot, 'Bodoni MT', 'Times New Roman', serif"],
+ ["Baskerville","Baskerville, 'Baskerville Old Face', serif"],
+ ["Garamond","Garamond, 'Times New Roman', serif"],
+ ["Helvetica Neue","'Helvetica Neue', Helvetica, Arial, sans-serif"],
+ ["Arial","Arial, Helvetica, sans-serif"]
+]
+function populateFonts(){document.querySelectorAll(".font-picker").forEach(sel=>{sel.innerHTML=FONT_CHOICES.map(([n,v])=>`<option value="${esc(v)}" style="font-family:${v}">${n}</option>`).join("")})}
+function updateVisualOutputs(){document.querySelectorAll('#visualForm input[type="range"]').forEach(inp=>{const o=document.querySelector(`[data-output="${inp.name}"]`);if(!o)return;const percent=["heroScale","motionSpeed","imageZoom","bodyLineHeight","navOpacity"].includes(inp.name)||inp.name.includes("Pos");const unit=percent?"%":inp.name==="headingTracking"?" ×.01em":"px";o.textContent=inp.value+unit})}
+function renderHeroPreview(){const el=document.getElementById("heroUploadPreview");if(el)el.style.backgroundImage=visual.heroImage?`url('${visual.heroImage}')`:`url('portada.png')`}
+async function loadVisual(){visual=getVisual();const storedHero=await durableGet(HERO_IMAGE_KEY);if(storedHero!==undefined)visual.heroImage=storedHero||"";else if(visual.heroImage){await durablePut(HERO_IMAGE_KEY,visual.heroImage);let clean={};try{clean=JSON.parse(siteStorage.getItem(VISUAL_KEY))||{}}catch(e){};delete clean.heroImage;siteStorage.setItem(VISUAL_KEY,JSON.stringify(clean))}const f=document.getElementById("visualForm");if(!f)return;populateFonts();Object.entries(visual).forEach(([k,v])=>{if(f.elements[k]&&k!=="heroImage")f.elements[k].value=v});updateVisualOutputs();renderHeroPreview()}
+document.querySelectorAll('#visualForm input[type="range"]').forEach(inp=>inp.addEventListener("input",updateVisualOutputs));document.getElementById("heroImageInput")?.addEventListener("change",e=>fileToData(e.target.files[0],src=>{visual.heroImage=src;renderHeroPreview()}));document.getElementById("removeHeroImage")?.addEventListener("click",()=>{visual.heroImage="";renderHeroPreview()});
+document.getElementById("visualForm")?.addEventListener("submit",e=>{e.preventDefault();const f=e.currentTarget;Object.keys(visualDefaults()).forEach(k=>{if(k==="heroImage"||!f.elements[k])return;visual[k]=f.elements[k].type==="range"?Number(f.elements[k].value):f.elements[k].value});const visualToSave={...visual};delete visualToSave.heroImage;safeSet(VISUAL_KEY,visualToSave,"visual");durablePut(HERO_IMAGE_KEY,visual.heroImage||"");flash("visualSaveMsg","✓ Diseño premium guardado")});
+document.getElementById("resetVisual")?.addEventListener("click",()=>{if(confirm("¿Restaurar colores, tipografías, tamaños y animaciones originales?")){siteStorage.removeItem(VISUAL_KEY);visual=visualDefaults();loadVisual();touchStatus();notifyPublic("visual");flash("visualSaveMsg","✓ Diseño original restaurado")}});
+
+
+// GUARDADO POR SECCIÓN: nada se escribe hasta presionar Guardar.
+function visualKeysInSection(section){return [...section.querySelectorAll("[name]")].map(el=>el.name).filter(Boolean)}
+document.querySelectorAll("[data-save-visual-section]").forEach(btn=>btn.addEventListener("click",()=>{const section=btn.closest(".admin-design-section"),keys=visualKeysInSection(section),f=document.getElementById("visualForm");let raw={};try{raw=JSON.parse(siteStorage.getItem(VISUAL_KEY))||{}}catch(e){};keys.forEach(k=>{if(f.elements[k])raw[k]=readField(f.elements[k])});if(section.querySelector("#heroUploadPreview")){delete raw.heroImage;durablePut(HERO_IMAGE_KEY,visual.heroImage||"")}safeSet(VISUAL_KEY,raw,"visual");const msg=btn.parentElement.querySelector("[data-msg-visual]");if(msg){msg.textContent="✓ Sección guardada";setTimeout(()=>msg.textContent="",2200)}}));
+document.querySelectorAll("[data-reset-visual-section]").forEach(btn=>btn.addEventListener("click",()=>{const section=btn.closest(".admin-design-section"),keys=visualKeysInSection(section);let raw={};try{raw=JSON.parse(siteStorage.getItem(VISUAL_KEY))||{}}catch(e){};keys.forEach(k=>delete raw[k]);if(section.querySelector("#heroUploadPreview")){delete raw.heroImage;visual.heroImage="";durableDelete(HERO_IMAGE_KEY)}if(Object.keys(raw).length)siteStorage.setItem(VISUAL_KEY,JSON.stringify(raw));else siteStorage.removeItem(VISUAL_KEY);loadVisual();notifyPublic("visual");const msg=btn.parentElement.querySelector("[data-msg-visual]");if(msg){msg.textContent="✓ Usa nuevamente CSS/código";setTimeout(()=>msg.textContent="",2200)}}));
+// BACKUPS
+function snapshot(){return {version:"Caressano-V8-original-pro",createdAt:new Date().toISOString(),data:getData(),about:getAbout(),visual:getVisual(),home:getHome(),banner:getBanner(),news:getNews(),newsStyle:getNewsStyle(),modelsCopy:getModelsCopy()}}
+document.getElementById("exportBackup")?.addEventListener("click",async()=>{const backup=snapshot();backup.heroImage=await durableGet(HERO_IMAGE_KEY);const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"}),a=document.createElement("a"),stamp=new Date().toISOString().slice(0,10);a.href=URL.createObjectURL(blob);a.download=`caressano-backup-${stamp}.json`;a.click();URL.revokeObjectURL(a.href);document.getElementById("backupMessage").textContent="✓ Backup descargado correctamente."});
+document.getElementById("importBackup")?.addEventListener("change",e=>{const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=()=>{try{const b=JSON.parse(r.result);if(!b.data)throw new Error();if(!confirm("¿Restaurar este backup? Los datos locales actuales serán reemplazados."))return;siteStorage.setItem(DATA_KEY,JSON.stringify(b.data));if(b.about)siteStorage.setItem(ABOUT_KEY,JSON.stringify(b.about));if(b.visual)siteStorage.setItem(VISUAL_KEY,JSON.stringify(b.visual));if(b.home)siteStorage.setItem(HOME_KEY,JSON.stringify(b.home));if(b.banner)siteStorage.setItem(BANNER_KEY,JSON.stringify(b.banner));if(b.news)siteStorage.setItem(NEWS_KEY,JSON.stringify(b.news));if(b.newsStyle)siteStorage.setItem(NEWS_STYLE_KEY,JSON.stringify(b.newsStyle));if(b.modelsCopy)siteStorage.setItem(MODELS_COPY_KEY,JSON.stringify(b.modelsCopy));if(Object.prototype.hasOwnProperty.call(b,"heroImage"))durablePut(HERO_IMAGE_KEY,b.heroImage);data=getData();loadAll();notifyPublic("backup");document.getElementById("backupMessage").textContent="✓ Backup restaurado."}catch(err){document.getElementById("backupMessage").textContent="No se pudo importar: el archivo no parece ser un backup válido de Caressano."}};r.readAsText(file)});
+document.getElementById("resetAll")?.addEventListener("click",()=>{if(confirm("Esto restaurará los datos locales del V5. ¿Continuar?")){siteStorage.removeItem(DATA_KEY);siteStorage.removeItem(ABOUT_KEY);siteStorage.removeItem(VISUAL_KEY);siteStorage.removeItem(HOME_KEY);siteStorage.removeItem(BANNER_KEY);siteStorage.removeItem(NEWS_KEY);siteStorage.removeItem(NEWS_STYLE_KEY);siteStorage.removeItem(MODELS_COPY_KEY);data=clone(DEFAULTS);saveData(data);about=aboutDefaults();visual=visualDefaults();loadAll();document.getElementById("backupMessage").textContent="✓ Datos locales restaurados."}});
+
+function loadAll(){data=getData();loadHome();renderNewsAdmin();renderNewsStyleAdmin();loadModelsCopy();renderBannerAdmin(true);loadContact();loadAbout();loadVisual();loadPostularButtonControls();refreshSummary();renderModels()}
+
+window.addEventListener("pagehide",()=>{durableSyncAll()});
