@@ -4,15 +4,35 @@ const DATA_KEY="caressanoDemo",ABOUT_KEY="caressanoAboutDemo",VISUAL_KEY="caress
 
 // PERSISTENCIA V6: espejo duradero en IndexedDB. Evita perder cambios al cerrar y volver a abrir.
 const CARESSANO_PERSIST_KEYS=["caressanoDemo","caressanoAboutDemo","caressanoVisualDemo","caressanoHomeDemo","caressanoBannerDemo","caressanoNewsDemo","caressanoNewsStyleDemo","caressanoModelsCopyDemo","caressanoSectionalStorageRev","caressanoPublicStableHeroRev"];
+
+// Settings use memory + IndexedDB. Legacy localStorage is read only for migration.
+const settingsCache=new Map();
+let settingsPending=Promise.resolve(), settingsError=null;
+const siteStorage={
+ getItem(key){if(settingsCache.has(key))return settingsCache.get(key);try{return localStorage.getItem(key)}catch(e){return null}},
+ setItem(key,value){value=String(value);settingsCache.set(key,value);queueSetting(key,value)},
+ removeItem(key){settingsCache.set(key,null);queueSetting(key,null)}
+};
+function queueSetting(key,value){
+ settingsPending=settingsPending.then(async()=>{
+  const db=await caressanoDB();
+  try{await new Promise((resolve,reject)=>{const tx=db.transaction('settings','readwrite');
+   // Tombstones prevent legacy localStorage values from returning after a reset.
+   tx.objectStore('settings').put(value,key);tx.oncomplete=resolve;
+   tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error('Guardado cancelado'));
+  })}finally{db.close()}
+ }).catch(error=>{settingsError=error;console.error('No se pudo guardar en este dispositivo:',error)});
+}
+async function flushSettings(){await settingsPending;if(settingsError){const error=settingsError;settingsError=null;throw error}}
 function caressanoDB(){return new Promise((resolve,reject)=>{const q=indexedDB.open("caressanoModelsPersistent",1);q.onupgradeneeded=()=>{if(!q.result.objectStoreNames.contains("settings"))q.result.createObjectStore("settings")};q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)})}
-async function durablePut(key,value){try{const db=await caressanoDB();await new Promise((res,rej)=>{const tx=db.transaction("settings","readwrite");tx.objectStore("settings").put(value,key);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});db.close()}catch(e){console.warn("Persistencia IndexedDB:",e)}}
-async function durableGet(key){try{const db=await caressanoDB();const value=await new Promise((res,rej)=>{const tx=db.transaction("settings","readonly"),q=tx.objectStore("settings").get(key);q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});db.close();return value}catch(e){console.warn("Lectura IndexedDB:",e);return undefined}}
-async function durableDelete(key){try{const db=await caressanoDB();await new Promise((res,rej)=>{const tx=db.transaction("settings","readwrite");tx.objectStore("settings").delete(key);tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});db.close()}catch(e){console.warn("Persistencia IndexedDB:",e)}}
-async function durableRestore(){try{const db=await caressanoDB();let restored=false;for(const key of CARESSANO_PERSIST_KEYS){const val=await new Promise((res,rej)=>{const tx=db.transaction("settings","readonly"),q=tx.objectStore("settings").get(key);q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});if(val!==undefined){localStorage.setItem(key,val);restored=true}}db.close();return restored}catch(e){console.warn("Restauración persistente:",e);return false}}
-function mirrorExistingSettings(){CARESSANO_PERSIST_KEYS.forEach(k=>{const v=localStorage.getItem(k);if(v!==null)durablePut(k,v)});try{navigator.storage?.persist?.()}catch(e){}}
+async function durablePut(key,value){queueSetting(key,value);await flushSettings()}
+async function durableGet(key){try{await settingsPending;const db=await caressanoDB();const value=await new Promise((res,rej)=>{const tx=db.transaction("settings","readonly"),q=tx.objectStore("settings").get(key);q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});db.close();return value}catch(e){console.warn("Lectura IndexedDB:",e);return undefined}}
+async function durableDelete(key){queueSetting(key,null);await flushSettings()}
+async function durableRestore(){try{await settingsPending;const db=await caressanoDB();let restored=false;for(const key of CARESSANO_PERSIST_KEYS){const val=await new Promise((res,rej)=>{const tx=db.transaction("settings","readonly"),q=tx.objectStore("settings").get(key);q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});if(val!==undefined){settingsCache.set(key,val);restored=true}}db.close();return restored}catch(e){console.warn("Restauración persistente:",e);return false}}
+function mirrorExistingSettings(){CARESSANO_PERSIST_KEYS.forEach(k=>{const v=siteStorage.getItem(k);if(v!==null)queueSetting(k,v)});try{navigator.storage?.persist?.()}catch(e){}}
 // V7: IndexedDB es la copia maestra al reabrir. localStorage queda como caché rápida.
 // Así, si el navegador o una inicialización deja valores viejos en localStorage, no pisan lo guardado.
-async function durableSyncAll(){for(const k of CARESSANO_PERSIST_KEYS){const v=localStorage.getItem(k);if(v!==null)await durablePut(k,v)}}
+async function durableSyncAll(){for(const k of CARESSANO_PERSIST_KEYS){const v=siteStorage.getItem(k);if(v!==null)queueSetting(k,v)}}
 
 const caressanoChannel=("BroadcastChannel" in window)?new BroadcastChannel("caressano-live"):null;
 
@@ -28,25 +48,12 @@ function notifyPublic(area="content"){
 }
 
 function safeSet(key,value,area="content"){
-  try{
-    localStorage.setItem(key,JSON.stringify(value));
-    const saved=localStorage.getItem(key);
-
-    durablePut(key,saved).then(()=>{
-      try{
-        localStorage.setItem("caressanoLastSavedAt",String(Date.now()));
-      }catch(e){}
-    });
-
-    touchStatus();
-    notifyPublic(area);
-    return true;
-  }catch(e){
-    console.error(e);
-    alert("No se pudo guardar.");
-    return false;
-  }
-}
+  try{siteStorage.setItem(key,JSON.stringify(value));
+   flushSettings().then(()=>{touchStatus();notifyPublic(area)}).catch(error=>{
+    console.error(error);alert("No se pudo guardar en este dispositivo. Conservá esta pestaña abierta y exportá un backup.");
+   });return true;
+  }catch(error){console.error(error);alert("No se pudo guardar.");return false}
+ }
 
 const SUPABASE_URL="https://zvyvsmscrlwqrrugoven.supabase.co";
 const SUPABASE_KEY="sb_publishable_ZbFT9AkHu41tbszLrvFbew_EV-fEt6i";
@@ -178,7 +185,7 @@ async function collectSiteState(){
   for(const key of REMOTE_SITE_KEYS){
 
     const value=
-      localStorage.getItem(key);
+      siteStorage.getItem(key);
 
     if(value!==null){
       state[key]=value;
@@ -251,7 +258,7 @@ async function applyRemoteSiteState(state){
       )
     ){
 
-      localStorage.setItem(
+      siteStorage.setItem(
         key,
         state[key]
       );
@@ -263,7 +270,7 @@ async function applyRemoteSiteState(state){
 
     }else{
 
-      localStorage.removeItem(key);
+      siteStorage.removeItem(key);
       await durableDelete(key);
     }
   }
@@ -290,7 +297,9 @@ async function applyRemoteSiteState(state){
   return true;
 }
 
-async function publishSiteState(){
+let publicationQueue=Promise.resolve();
+function publishSiteState(){publicationQueue=publicationQueue.then(performPublishSiteState,performPublishSiteState);return publicationQueue}
+async function performPublishSiteState(){
 
   const token=
     await getAdminToken();
@@ -310,6 +319,7 @@ async function publishSiteState(){
 
   try{
 
+    await flushSettings();
     const state=
       await collectSiteState();
 
@@ -329,7 +339,7 @@ async function publishSiteState(){
           "Content-Type":
             "application/json",
           "Prefer":
-            "return=minimal"
+            "return=representation"
         },
 
         body:JSON.stringify({
@@ -346,6 +356,8 @@ async function publishSiteState(){
       );
     }
 
+    const updated=await response.json();
+    if(!Array.isArray(updated)||updated.length!==1)throw new Error("Supabase no actualizó la fila main. Revisá permisos y existencia de la fila.");
     if(status){
 
       status.textContent=
@@ -439,8 +451,7 @@ async function syncAdminWithRemote(){
       lo que ya tenías en el panel.
     */
 
-    await publishSiteState();
-
+    // Una lectura vacía no autoriza reemplazar el contenido remoto.
     return false;
 
   }catch(error){
@@ -454,14 +465,14 @@ async function syncAdminWithRemote(){
   }
 }
 const clone=x=>JSON.parse(JSON.stringify(x));
-function getData(){try{const raw=JSON.parse(localStorage.getItem(DATA_KEY))||{};return {content:{...clone(DEFAULTS.content),...(raw.content||{}),contact:{...clone(DEFAULTS.content.contact),...(raw.content?.contact||{})}},images:{...clone(DEFAULTS.images),...(raw.images||{})},models:Array.isArray(raw.models)?raw.models:clone(DEFAULTS.models)}}catch(e){return clone(DEFAULTS)}}
+function getData(){try{const raw=JSON.parse(siteStorage.getItem(DATA_KEY))||{};return {content:{...clone(DEFAULTS.content),...(raw.content||{}),contact:{...clone(DEFAULTS.content.contact),...(raw.content?.contact||{})}},images:{...clone(DEFAULTS.images),...(raw.images||{})},models:Array.isArray(raw.models)?raw.models:clone(DEFAULTS.models)}}catch(e){return clone(DEFAULTS)}}
 function saveData(d){return safeSet(DATA_KEY,d,"data")}
-function migrateSectionalStorage(){try{if(localStorage.getItem(STORAGE_REV_KEY)==="4")return;const raw=JSON.parse(localStorage.getItem(DATA_KEY)||"null");if(raw){const clean={};if(Array.isArray(raw.models))clean.models=raw.models;if(raw.images)clean.images=raw.images;if(raw.content?.contact)clean.content={contact:raw.content.contact};localStorage.setItem(DATA_KEY,JSON.stringify(clean))}const h=JSON.parse(localStorage.getItem(HOME_KEY)||"null");if(h){h.brandX=0;h.brandY=0;localStorage.setItem(HOME_KEY,JSON.stringify(h))}const v=JSON.parse(localStorage.getItem(VISUAL_KEY)||"null");if(v){delete v.heroFit;delete v.heroScale;delete v.heroPosX;delete v.heroPosY;delete v.motionPreset;delete v.motionSpeed;delete v.imageZoom;localStorage.setItem(VISUAL_KEY,JSON.stringify(v))}const b=JSON.parse(localStorage.getItem(BANNER_KEY)||"null");if(b){if(Number(b.speed)<72)b.speed=82;localStorage.setItem(BANNER_KEY,JSON.stringify(b))}const n=JSON.parse(localStorage.getItem("caressanoNewsDemo")||"null");if(Array.isArray(n)){const slim=n.map(x=>({title:x?.title||"NUEVA NOVEDAD",subtitle:x?.subtitle||"",url:x?.url||"",cta:x?.cta||"VER NOVEDAD"}));localStorage.setItem("caressanoNewsDemo",JSON.stringify(slim))}localStorage.setItem(STORAGE_REV_KEY,"4")}catch(e){console.warn("Migración local omitida",e)}}
-migrateSectionalStorage();
+function migrateSectionalStorage(){try{if(siteStorage.getItem(STORAGE_REV_KEY)==="4")return;const raw=JSON.parse(siteStorage.getItem(DATA_KEY)||"null");if(raw){const clean={};if(Array.isArray(raw.models))clean.models=raw.models;if(raw.images)clean.images=raw.images;if(raw.content?.contact)clean.content={contact:raw.content.contact};siteStorage.setItem(DATA_KEY,JSON.stringify(clean))}const h=JSON.parse(siteStorage.getItem(HOME_KEY)||"null");if(h){h.brandX=0;h.brandY=0;siteStorage.setItem(HOME_KEY,JSON.stringify(h))}const v=JSON.parse(siteStorage.getItem(VISUAL_KEY)||"null");if(v){delete v.heroFit;delete v.heroScale;delete v.heroPosX;delete v.heroPosY;delete v.motionPreset;delete v.motionSpeed;delete v.imageZoom;siteStorage.setItem(VISUAL_KEY,JSON.stringify(v))}const b=JSON.parse(siteStorage.getItem(BANNER_KEY)||"null");if(b){if(Number(b.speed)<72)b.speed=82;siteStorage.setItem(BANNER_KEY,JSON.stringify(b))}const n=JSON.parse(siteStorage.getItem("caressanoNewsDemo")||"null");if(Array.isArray(n)){const slim=n.map(x=>({title:x?.title||"NUEVA NOVEDAD",subtitle:x?.subtitle||"",url:x?.url||"",cta:x?.cta||"VER NOVEDAD"}));siteStorage.setItem("caressanoNewsDemo",JSON.stringify(slim))}siteStorage.setItem(STORAGE_REV_KEY,"4")}catch(e){console.warn("Migración local omitida",e)}}
+// No ejecutar migraciones destructivas sobre datos existentes.
 let data=getData();data.models=(data.models||[]).map(m=>({...m,published:m.published??!m.placeholder,placeholder:m.placeholder??false,gallery:Array.isArray(m.gallery)?m.gallery:[]}));
 function esc(s){return String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;")}
 function slugify(v){return String(v||"modelo").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")||("modelo-"+Date.now())}
-function optimizeImageFile(file,cb){if(!file)return;const r=new FileReader();r.onerror=()=>alert("No se pudo leer la imagen seleccionada.");r.onload=()=>{const img=new Image();img.onerror=()=>cb(r.result);img.onload=()=>{const max=2600,scale=Math.min(1,max/Math.max(img.width||1,img.height||1)),w=Math.max(1,Math.round(img.width*scale)),h=Math.max(1,Math.round(img.height*scale)),c=document.createElement("canvas");c.width=w;c.height=h;const ctx=c.getContext("2d");ctx.drawImage(img,0,0,w,h);let out=r.result;try{out=c.toDataURL("image/jpeg",.95)}catch(e){}cb(out)};img.src=r.result};r.readAsDataURL(file)}
+function optimizeImageFile(file,cb){if(!file)return;const r=new FileReader();r.onerror=()=>alert("No se pudo leer la imagen seleccionada.");r.onload=()=>cb(r.result);r.readAsDataURL(file)}
 function fileToData(file,cb){if(!file)return;if((file.type||"").startsWith("image/"))return optimizeImageFile(file,cb);const r=new FileReader();r.onload=()=>cb(r.result);r.onerror=()=>alert("No se pudo leer el archivo seleccionado.");r.readAsDataURL(file)}
 function filesToData(files,cb){const list=[...files];if(!list.length)return cb([]);Promise.all(list.map(f=>new Promise(res=>fileToData(f,res)))).then(cb)}
 function fileToMedia(file,cb){if(!file)return;const isVideo=(file.type||"").startsWith("video/");if(isVideo&&file.size>8*1024*1024){alert("Ese video es demasiado pesado para la versión local. Usá uno de menos de 8 MB o una foto.");return}if(!isVideo)return optimizeImageFile(file,src=>cb({src,type:"image",name:file.name||"foto"}));const r=new FileReader();r.onload=()=>cb({src:r.result,type:"video",name:file.name||"video"});r.onerror=()=>alert("No se pudo leer el video seleccionado.");r.readAsDataURL(file)}
@@ -531,15 +542,15 @@ function refreshSummary(){const models=data.models||[];document.getElementById("
 
 // INICIO
 function homeDefaults(){return {values:"FASHION\nTALENT\nIDENTITY",brand:"CARESSANO",subtitle:"MODELS AGENCY",brandX:0,brandY:0,brandVisible:true}}
-function getHome(){try{return {...homeDefaults(),...(JSON.parse(localStorage.getItem(HOME_KEY))||{})}}catch(e){return homeDefaults()}}
+function getHome(){try{return {...homeDefaults(),...(JSON.parse(siteStorage.getItem(HOME_KEY))||{})}}catch(e){return homeDefaults()}}
 function loadHome(){const f=document.getElementById("homeForm"),h=getHome();if(!f)return;Object.keys(homeDefaults()).forEach(k=>{if(!f.elements[k])return;if(f.elements[k].type==="checkbox")f.elements[k].checked=!!h[k];else f.elements[k].value=h[k]});document.querySelectorAll("[data-home-output]").forEach(o=>{const i=f.elements[o.dataset.homeOutput];if(i)o.textContent=i.value+"%"})}
 function readField(el){if(!el)return undefined;if(el.type==="checkbox")return el.checked;if(el.type==="range"||el.type==="number")return Number(el.value);return el.value.trim()}
-function persistPartial(key,defaults,form,keys,area){let raw={};try{raw=JSON.parse(localStorage.getItem(key))||{}}catch(e){};keys.forEach(k=>{if(form.elements[k])raw[k]=readField(form.elements[k])});safeSet(key,raw,area)}
-function resetPartial(key,form,keys,defaults,area){let raw={};try{raw=JSON.parse(localStorage.getItem(key))||{}}catch(e){};keys.forEach(k=>delete raw[k]);if(Object.keys(raw).length)localStorage.setItem(key,JSON.stringify(raw));else localStorage.removeItem(key);keys.forEach(k=>{const el=form.elements[k];if(!el)return;const v=defaults[k];if(el.type==="checkbox")el.checked=!!v;else el.value=v});notifyPublic(area);touchStatus()}
+function persistPartial(key,defaults,form,keys,area){let raw={};try{raw=JSON.parse(siteStorage.getItem(key))||{}}catch(e){};keys.forEach(k=>{if(form.elements[k])raw[k]=readField(form.elements[k])});safeSet(key,raw,area)}
+function resetPartial(key,form,keys,defaults,area){let raw={};try{raw=JSON.parse(siteStorage.getItem(key))||{}}catch(e){};keys.forEach(k=>delete raw[k]);if(Object.keys(raw).length)siteStorage.setItem(key,JSON.stringify(raw));else siteStorage.removeItem(key);keys.forEach(k=>{const el=form.elements[k];if(!el)return;const v=defaults[k];if(el.type==="checkbox")el.checked=!!v;else el.value=v});notifyPublic(area);touchStatus()}
 document.getElementById("homeForm")?.addEventListener("submit",e=>{e.preventDefault();const f=e.currentTarget,h={};Object.keys(homeDefaults()).forEach(k=>h[k]=readField(f.elements[k]));safeSet(HOME_KEY,h,"home");flash("homeSaveMsg","✓ Todo Inicio actualizado")});document.getElementById("homeForm")?.addEventListener("input",e=>{const o=document.querySelector(`[data-home-output="${e.target.name}"]`);if(o)o.textContent=e.target.value+"%"});
 document.querySelectorAll("[data-save-home]").forEach(b=>b.addEventListener("click",()=>{const f=document.getElementById("homeForm"),keys=b.dataset.saveHome.split(",");persistPartial(HOME_KEY,homeDefaults(),f,keys,"home");const msg=b.parentElement.querySelector("[data-msg-home]");if(msg){msg.textContent="✓ Bloque guardado";setTimeout(()=>msg.textContent="",2200)}}));
 document.querySelectorAll("[data-reset-home]").forEach(b=>b.addEventListener("click",()=>{const f=document.getElementById("homeForm"),keys=b.dataset.resetHome.split(",");resetPartial(HOME_KEY,f,keys,homeDefaults(),"home");loadHome();const msg=b.parentElement.querySelector("[data-msg-home]");if(msg){msg.textContent="✓ Usa nuevamente el código";setTimeout(()=>msg.textContent="",2200)}}));
-document.getElementById("resetHome")?.addEventListener("click",()=>{if(confirm("¿Restaurar todo Inicio desde los archivos del proyecto?")){localStorage.removeItem(HOME_KEY);loadHome();touchStatus();notifyPublic("home");flash("homeSaveMsg","✓ Inicio restaurado desde código")}});
+document.getElementById("resetHome")?.addEventListener("click",()=>{if(confirm("¿Restaurar todo Inicio desde los archivos del proyecto?")){siteStorage.removeItem(HOME_KEY);loadHome();touchStatus();notifyPublic("home");flash("homeSaveMsg","✓ Inicio restaurado desde código")}});
 
 // NOVEDADES · ENLACES EDITORIALES
 const NEWS_KEY="caressanoNewsDemo",NEWS_STYLE_KEY="caressanoNewsStyleDemo";
@@ -548,11 +559,11 @@ function newsDefaults(){return [
   {title:"CARESSANO NEWS",subtitle:"Novedades, eventos y anuncios de la agencia.",url:"https://www.instagram.com/caressanomodels/",cta:"VER MÁS"}
 ]}
 function normalizeNewsItem(n={}){return {title:n.title||"NUEVA NOVEDAD",subtitle:n.subtitle||"Escribí un subtítulo.",url:n.url||"",cta:n.cta||"VER NOVEDAD"}}
-function getNews(){try{const v=JSON.parse(localStorage.getItem(NEWS_KEY));return Array.isArray(v)&&v.length?v.map(normalizeNewsItem):newsDefaults()}catch(e){return newsDefaults()}}
+function getNews(){try{const v=JSON.parse(siteStorage.getItem(NEWS_KEY));return Array.isArray(v)&&v.length?v.map(normalizeNewsItem):newsDefaults()}catch(e){return newsDefaults()}}
 let newsItems=getNews();
 function saveNews(){newsItems=newsItems.map(normalizeNewsItem);return safeSet(NEWS_KEY,newsItems,"news")}
 function newsStyleDefaults(){return {image:"",sectionBg:"#090909",textColor:"#ffffff",bodyColor:"#ffffff",buttonBg:"#ffffff",buttonText:"#090909",imageWidth:46,imageHeight:620,imageFit:"cover",imageFilter:"natural"}}
-function getNewsStyle(){try{return {...newsStyleDefaults(),...(JSON.parse(localStorage.getItem(NEWS_STYLE_KEY))||{})}}catch(e){return newsStyleDefaults()}}
+function getNewsStyle(){try{return {...newsStyleDefaults(),...(JSON.parse(siteStorage.getItem(NEWS_STYLE_KEY))||{})}}catch(e){return newsStyleDefaults()}}
 let newsStyle=getNewsStyle();
 function renderNewsStyleAdmin(){
   newsStyle=getNewsStyle();
@@ -575,28 +586,28 @@ document.getElementById("addNewsItem")?.addEventListener("click",()=>{newsItems.
 document.getElementById("newsFeatureInput")?.addEventListener("change",e=>{const file=e.currentTarget.files?.[0];if(!file)return;fileToNewsMedia(file,media=>{if(media?.type!=="image"){alert("Para este bloque usá una imagen.");return}newsStyle.image=media.src;const up=document.getElementById("newsFeatureUpload");if(up){up.classList.add("has-photo");up.style.backgroundImage=`url("${String(media.src).replace(/"/g,'%22')}")`}flash("newsSaveMsg","✓ Foto lista. Tocá GUARDAR NOVEDADES")})});
 document.getElementById("removeNewsFeature")?.addEventListener("click",()=>{newsStyle.image="";const up=document.getElementById("newsFeatureUpload");if(up){up.classList.remove("has-photo");up.style.backgroundImage=""}flash("newsSaveMsg","✓ Foto quitada. Tocá GUARDAR NOVEDADES")});
 document.getElementById("saveNewsSection")?.addEventListener("click",()=>{collectNewsStyle();const a=saveNews(),b=safeSet(NEWS_STYLE_KEY,newsStyle,"news");if(a&&b){notifyPublic("news");flash("newsSaveMsg","✓ Novedades guardadas y publicadas")}});
-document.getElementById("resetNewsSection")?.addEventListener("click",()=>{if(confirm("¿Restaurar Novedades desde el código?")){localStorage.removeItem(NEWS_KEY);localStorage.removeItem(NEWS_STYLE_KEY);newsItems=getNews();newsStyle=getNewsStyle();renderNewsAdmin();renderNewsStyleAdmin();notifyPublic("news");flash("newsSaveMsg","✓ Novedades restauradas desde código")}});
+document.getElementById("resetNewsSection")?.addEventListener("click",()=>{if(confirm("¿Restaurar Novedades desde el código?")){siteStorage.removeItem(NEWS_KEY);siteStorage.removeItem(NEWS_STYLE_KEY);newsItems=getNews();newsStyle=getNewsStyle();renderNewsAdmin();renderNewsStyleAdmin();notifyPublic("news");flash("newsSaveMsg","✓ Novedades restauradas desde código")}});
 
 // BANNER EDITORIAL
 function bannerDefaults(){return {enabled:true,mode:"photos",height:280,speed:82,gap:24,overlay:3,topSpace:42,itemWidth:26,radius:4,fade:10,borderWidth:1,media:[1,2,3,4,5].map(i=>({src:`images/valentin-cabral/0${i}.jpg`,type:"image"}))}}
-function getBanner(){try{return {...bannerDefaults(),...(JSON.parse(localStorage.getItem(BANNER_KEY))||{})}}catch(e){return bannerDefaults()}}
+function getBanner(){try{return {...bannerDefaults(),...(JSON.parse(siteStorage.getItem(BANNER_KEY))||{})}}catch(e){return bannerDefaults()}}
 let banner=getBanner();
 function saveBanner(){return safeSet(BANNER_KEY,banner,"banner")}
 function renderBannerAdmin(reload=false){if(reload)banner=getBanner();const list=document.getElementById("bannerMediaList");if(!list)return;document.getElementById("bannerEnabled").checked=!!banner.enabled;const bm=document.getElementById("bannerMode");if(bm){bm.value=banner.mode||"photos";bm.onchange=e=>banner.mode=e.target.value;}[["bannerHeight","height","px"],["bannerSpeed","speed"," s"],["bannerGap","gap","px"],["bannerOverlay","overlay","%"],["bannerTopSpace","topSpace","px"],["bannerItemWidth","itemWidth","vw"],["bannerRadius","radius","px"],["bannerFade","fade","%"],["bannerBorderWidth","borderWidth","px"]].forEach(([id,k,u])=>{const el=document.getElementById(id),out=document.getElementById(id+"Out");if(el){el.value=banner[k];if(out)out.textContent=banner[k]+u;el.oninput=()=>{banner[k]=+el.value;if(out)out.textContent=el.value+u}}});document.getElementById("bannerEnabled").onchange=e=>{banner.enabled=e.target.checked};list.innerHTML=(banner.media||[]).map((raw,i)=>{const m=normMedia(raw);return `<span class="admin-media-thumb">${m.type==="video"?`<video src="${m.src}" muted playsinline></video>`:`<i style="background-image:url('${m.src}')"></i>`}<button type="button" data-banner-remove="${i}" aria-label="Eliminar">×</button><small>${m.type==="video"?"VIDEO":"FOTO"}</small></span>`}).join("")||'<p class="muted">Todavía no hay medios en el banner.</p>';list.querySelectorAll("[data-banner-remove]").forEach(b=>b.onclick=()=>{banner.media.splice(+b.dataset.bannerRemove,1);if(saveBanner()){renderBannerAdmin(false);flash("bannerSaveMsg","✓ Foto eliminada del banner")}})}
 document.getElementById("bannerMediaInput")?.addEventListener("change",e=>{const input=e.currentTarget;filesToMedia(input.files,items=>{if(!items?.length)return;banner.media=[...(banner.media||[]),...items];if(saveBanner()){renderBannerAdmin(false);flash("bannerSaveMsg",`✓ ${items.length} archivo(s) agregado(s) al banner`)}input.value=""})});
 document.getElementById("saveBannerSection")?.addEventListener("click",()=>{saveBanner();flash("bannerSaveMsg","✓ Banner guardado")});
-document.getElementById("resetBannerSection")?.addEventListener("click",()=>{if(confirm("¿Restaurar el banner desde el código?")){localStorage.removeItem(BANNER_KEY);banner=getBanner();renderBannerAdmin();notifyPublic("banner");flash("bannerSaveMsg","✓ Banner restaurado desde código")}});
+document.getElementById("resetBannerSection")?.addEventListener("click",()=>{if(confirm("¿Restaurar el banner desde el código?")){siteStorage.removeItem(BANNER_KEY);banner=getBanner();renderBannerAdmin();notifyPublic("banner");flash("bannerSaveMsg","✓ Banner restaurado desde código")}});
 
 // TEXTOS DE LA PÁGINA MODELOS
 function modelsCopyDefaults(){return {introKicker:"CARESSANO / TALENTO",introTitle:"Talent &",introAccent:"Discipline.",introCopy:"Una selección de perfiles representados por Caressano. Explorá cada perfil para conocer su identidad, medidas y portfolio.",introTitleColor:"#111111",introTitleFont:"\'Bodoni Moda\', Didot, serif",introTitleSize:"82",boardKicker:"OUR BOARD",boardTitle:"Modelos.",boardTitleColor:"#f3f3ef",boardTitleFont:"\'Bodoni Moda\', Didot, serif",boardTitleSize:"72",castingTitle:"¿Querés ser parte de Caressano Models?",castingTitleColor:"#f3f3ef",castingTitleFont:"\'Bodoni Moda\', Didot, serif",castingTitleSize:"64",profilePortfolioKicker:"PORTFOLIO",profilePortfolioTitle:"Presencia.",profilePortfolioAccent:"Identidad."}}
-function getModelsCopy(){try{return {...modelsCopyDefaults(),...(JSON.parse(localStorage.getItem(MODELS_COPY_KEY))||{})}}catch(e){return modelsCopyDefaults()}}
+function getModelsCopy(){try{return {...modelsCopyDefaults(),...(JSON.parse(siteStorage.getItem(MODELS_COPY_KEY))||{})}}catch(e){return modelsCopyDefaults()}}
 function loadModelsCopy(){const f=document.getElementById("modelsCopyForm"),m=getModelsCopy();if(!f)return;populateFonts();Object.entries(m).forEach(([k,v])=>{if(f.elements[k])f.elements[k].value=v})}
 document.getElementById("modelsCopyForm")?.addEventListener("submit",e=>{e.preventDefault();const f=e.currentTarget,m={};Object.keys(modelsCopyDefaults()).forEach(k=>{const el=f.elements[k];m[k]=el?.type==="number"?Number(el.value):(el?.value||"").trim()});safeSet(MODELS_COPY_KEY,m,"models-copy");flash("modelsCopySaveMsg","✓ Textos de Modelos actualizados")});
-document.getElementById("resetModelsCopy")?.addEventListener("click",()=>{if(confirm("¿Restaurar los textos originales de la página Modelos?")){localStorage.removeItem(MODELS_COPY_KEY);loadModelsCopy();touchStatus();notifyPublic("models-copy");flash("modelsCopySaveMsg","✓ Textos restaurados")}});
+document.getElementById("resetModelsCopy")?.addEventListener("click",()=>{if(confirm("¿Restaurar los textos originales de la página Modelos?")){siteStorage.removeItem(MODELS_COPY_KEY);loadModelsCopy();touchStatus();notifyPublic("models-copy");flash("modelsCopySaveMsg","✓ Textos restaurados")}});
 
 function loadPostularButtonControls(){const v=getVisual();const a=document.getElementById("postularButtonBg"),b=document.getElementById("postularButtonText");if(a)a.value=v.applyButtonBg||"#f2f2ee";if(b)b.value=v.applyButtonText||"#111111"}
-document.getElementById("savePostularButton")?.addEventListener("click",()=>{let raw={};try{raw=JSON.parse(localStorage.getItem(VISUAL_KEY))||{}}catch(e){};raw.applyButtonBg=document.getElementById("postularButtonBg")?.value||"#f2f2ee";raw.applyButtonText=document.getElementById("postularButtonText")?.value||"#111111";safeSet(VISUAL_KEY,raw,"visual");flash("postularButtonMsg","✓ Solo el botón POSTULARME fue guardado")});
-document.getElementById("resetPostularButton")?.addEventListener("click",()=>{let raw={};try{raw=JSON.parse(localStorage.getItem(VISUAL_KEY))||{}}catch(e){};delete raw.applyButtonBg;delete raw.applyButtonText;if(Object.keys(raw).length)localStorage.setItem(VISUAL_KEY,JSON.stringify(raw));else localStorage.removeItem(VISUAL_KEY);loadPostularButtonControls();notifyPublic("visual");flash("postularButtonMsg","✓ Botón restaurado")});
+document.getElementById("savePostularButton")?.addEventListener("click",()=>{let raw={};try{raw=JSON.parse(siteStorage.getItem(VISUAL_KEY))||{}}catch(e){};raw.applyButtonBg=document.getElementById("postularButtonBg")?.value||"#f2f2ee";raw.applyButtonText=document.getElementById("postularButtonText")?.value||"#111111";safeSet(VISUAL_KEY,raw,"visual");flash("postularButtonMsg","✓ Solo el botón POSTULARME fue guardado")});
+document.getElementById("resetPostularButton")?.addEventListener("click",()=>{let raw={};try{raw=JSON.parse(siteStorage.getItem(VISUAL_KEY))||{}}catch(e){};delete raw.applyButtonBg;delete raw.applyButtonText;if(Object.keys(raw).length)siteStorage.setItem(VISUAL_KEY,JSON.stringify(raw));else siteStorage.removeItem(VISUAL_KEY);loadPostularButtonControls();notifyPublic("visual");flash("postularButtonMsg","✓ Botón restaurado")});
 
 // MODELOS
 let modelSearch="",modelFilter="all";
@@ -646,7 +657,7 @@ function aboutDefaults(){return {intro:"",introSize:16,blocks:[
  {title:"FORMACIÓN Y MATERIAS",text:"Formamos modelos para desenvolverse con seguridad y profesionalismo en cada oportunidad.\n\n• Preparación para **castings y audiciones**\n• Presentación personal y desenvolvimiento profesional\n• Armado y proyección de imagen\n• Fotopose y expresión frente a cámara\n• Herramientas para el ámbito laboral del modelaje\n\nNuestro objetivo es brindar una formación que prepare a cada modelo para afrontar el mundo profesional con confianza, presencia y actitud.",titleSize:11,textSize:13},
  {title:"PROYECCIÓN PROFESIONAL",text:"Formamos modelos para desenvolverse con seguridad y profesionalismo en cada oportunidad.\n\n• Preparación para **castings y audiciones**\n• Presentación personal y desenvolvimiento profesional\n• Armado y proyección de imagen\n• Fotopose y expresión frente a cámara\n• Herramientas para el ámbito laboral del modelaje\n\nNuestro objetivo es brindar una formación que prepare a cada modelo para **afrontar el mundo profesional con confianza, presencia y actitud**.",titleSize:11,textSize:13}],photos:Array.from({length:6},()=>defaultPhotoSlot()),banner:{enabled:false,mode:"photos",height:300,speed:82,gap:20,itemWidth:30,media:[]}}}
 function migrateLegacyAbout(raw){if(raw?.blocks)return raw;const d=aboutDefaults(),blocks=[];for(let i=1;i<=6;i++){const t=raw?.[`b${i}title`],x=raw?.[`b${i}text`];if(t||x)blocks.push({title:t||"CONTENIDO",text:x||"",titleSize:+raw?.[`b${i}titleSize`]||11,textSize:+raw?.[`b${i}textSize`]||13})}return {...d,...raw,blocks:blocks.length?blocks:d.blocks,photos:(raw?.photos||d.photos).map(normalizeAboutPhoto)}}
-function getAbout(){try{return migrateLegacyAbout(JSON.parse(localStorage.getItem(ABOUT_KEY))||{})}catch(e){return aboutDefaults()}}
+function getAbout(){try{return migrateLegacyAbout(JSON.parse(siteStorage.getItem(ABOUT_KEY))||{})}catch(e){return aboutDefaults()}}
 let about=getAbout();
 function saveAbout(){const ok=safeSet(ABOUT_KEY,about,"about");if(ok)refreshSummary();return ok}
 function loadAbout(){about=getAbout();const f=document.getElementById("aboutForm");if(!f)return;f.intro.value=about.intro||"";f.introSize.value=about.introSize||16;renderAboutBlocks();renderAboutPhotos()}
@@ -666,11 +677,11 @@ function moveAboutPhoto(i,d){const j=i+d;if(j<0||j>=about.photos.length)return;[
 document.getElementById("addAboutPhoto")?.addEventListener("click",()=>{about.photos.push(defaultPhotoSlot());saveAbout();renderAboutPhotos()});
 document.getElementById("aboutForm")?.addEventListener("submit",e=>{e.preventDefault();const f=e.currentTarget;about.intro=f.intro.value.trim();about.introSize=Math.max(10,Math.min(40,+f.introSize.value||16));saveAbout();flash("aboutSaveMsg","✓ Nosotros actualizado")});
 document.getElementById("saveAboutIntro")?.addEventListener("click",()=>{const f=document.getElementById("aboutForm");about.intro=f.intro.value.trim();about.introSize=Math.max(10,Math.min(40,+f.introSize.value||16));saveAbout();notifyPublic("about");flash("aboutIntroMsg","✓ Introducción guardada")});
-document.getElementById("resetAboutIntro")?.addEventListener("click",()=>{const raw=JSON.parse(localStorage.getItem(ABOUT_KEY)||"{}");delete raw.intro;delete raw.introSize;if(Object.keys(raw).length)localStorage.setItem(ABOUT_KEY,JSON.stringify(raw));else localStorage.removeItem(ABOUT_KEY);loadAbout();notifyPublic("about");flash("aboutIntroMsg","✓ Introducción restaurada desde código")});
+document.getElementById("resetAboutIntro")?.addEventListener("click",()=>{const raw=JSON.parse(siteStorage.getItem(ABOUT_KEY)||"{}");delete raw.intro;delete raw.introSize;if(Object.keys(raw).length)siteStorage.setItem(ABOUT_KEY,JSON.stringify(raw));else siteStorage.removeItem(ABOUT_KEY);loadAbout();notifyPublic("about");flash("aboutIntroMsg","✓ Introducción restaurada desde código")});
 
 // DISEÑO
 function visualDefaults(){return {heroImage:"",heroFilter:"natural",heroFit:"original",heroScale:100,heroPosX:50,heroPosY:50,bodyBg:"#f2f2f0",bodyText:"#111111",heroBg:"#ededeb",navBg:"#f4f4f2",navText:"#111111",logoColor:"#111111",heroTitle:"#090909",heroSub:"#222222",heroValues:"#252525",representBg:"#f7f7f5",representText:"#101010",representBody:"#555555",linkColor:"#111111",applyButtonBg:"#f2f2ee",applyButtonText:"#111111",bannerBg:"#080808",bannerBorder:"#242424",bannerOverlayColor:"#000000",modelsBg:"#0a0a0a",modelsText:"#f3f3ef",cardBg:"#141414",cardText:"#f3f3ef",aboutBg:"#f2f2f0",aboutTitleColor:"#111111",aboutText:"#444444",aboutNumber:"#888888",profileBg:"#f2f2f0",profileText:"#111111",mutedText:"#555555",darkBg:"#0a0a0a",darkText:"#f3f3ef",drawerBg:"#090909",drawerText:"#f4f4ef",accent:"#777777",fontBrand:"'Bodoni Moda', Didot, 'Bodoni MT', serif",fontHeroSub:"Tenor Sans, Arial, sans-serif",fontHeading:"'Bodoni Moda', Didot, 'Bodoni MT', serif",fontAccent:"'Cormorant Garamond', Didot, serif",fontBody:"Arial, Helvetica, sans-serif",fontNav:"Arial, Helvetica, sans-serif",fontButtons:"Arial, Helvetica, sans-serif",fontModel:"Didot, 'Bodoni MT', 'Times New Roman', serif",heroTitleSize:176,heroSubtitleSize:12,representTitleSize:58,modelsTitleSize:82,aboutTitleSize:150,profileTitleSize:105,bodySize:16,navSize:11,buttonSize:11,motionPreset:"soft",motionSpeed:125,imageZoom:102,modelImageStyle:"natural",galleryImageStyle:"natural",modelCardGap:18,modelCardRadius:0,modelPhotoHeight:470,modelHoverLift:6,sectionSpacing:110,bodyLineHeight:180,headingTracking:-3,navOpacity:94,navBlur:16,mediaRadius:0}}
-function getVisual(){try{return {...visualDefaults(),...(JSON.parse(localStorage.getItem(VISUAL_KEY))||{})}}catch(e){return visualDefaults()}}
+function getVisual(){try{return {...visualDefaults(),...(JSON.parse(siteStorage.getItem(VISUAL_KEY))||{})}}catch(e){return visualDefaults()}}
 let visual=getVisual();
 const FONT_CHOICES=[["Ballet · caligrafía dibujada","Ballet, cursive"],["Pinyon Script · firma couture","\'Pinyon Script\', cursive"],["Italianno · firma fina","Italianno, cursive"],
  ["Bodoni Moda · Vogue","'Bodoni Moda', Didot, 'Bodoni MT', serif"],
@@ -699,21 +710,21 @@ const FONT_CHOICES=[["Ballet · caligrafía dibujada","Ballet, cursive"],["Pinyo
 function populateFonts(){document.querySelectorAll(".font-picker").forEach(sel=>{sel.innerHTML=FONT_CHOICES.map(([n,v])=>`<option value="${esc(v)}" style="font-family:${v}">${n}</option>`).join("")})}
 function updateVisualOutputs(){document.querySelectorAll('#visualForm input[type="range"]').forEach(inp=>{const o=document.querySelector(`[data-output="${inp.name}"]`);if(!o)return;const percent=["heroScale","motionSpeed","imageZoom","bodyLineHeight","navOpacity"].includes(inp.name)||inp.name.includes("Pos");const unit=percent?"%":inp.name==="headingTracking"?" ×.01em":"px";o.textContent=inp.value+unit})}
 function renderHeroPreview(){const el=document.getElementById("heroUploadPreview");if(el)el.style.backgroundImage=visual.heroImage?`url('${visual.heroImage}')`:`url('portada.png')`}
-async function loadVisual(){visual=getVisual();const storedHero=await durableGet(HERO_IMAGE_KEY);if(storedHero!==undefined)visual.heroImage=storedHero||"";else if(visual.heroImage){await durablePut(HERO_IMAGE_KEY,visual.heroImage);let clean={};try{clean=JSON.parse(localStorage.getItem(VISUAL_KEY))||{}}catch(e){};delete clean.heroImage;localStorage.setItem(VISUAL_KEY,JSON.stringify(clean))}const f=document.getElementById("visualForm");if(!f)return;populateFonts();Object.entries(visual).forEach(([k,v])=>{if(f.elements[k]&&k!=="heroImage")f.elements[k].value=v});updateVisualOutputs();renderHeroPreview()}
+async function loadVisual(){visual=getVisual();const storedHero=await durableGet(HERO_IMAGE_KEY);if(storedHero!==undefined)visual.heroImage=storedHero||"";else if(visual.heroImage){await durablePut(HERO_IMAGE_KEY,visual.heroImage);let clean={};try{clean=JSON.parse(siteStorage.getItem(VISUAL_KEY))||{}}catch(e){};delete clean.heroImage;siteStorage.setItem(VISUAL_KEY,JSON.stringify(clean))}const f=document.getElementById("visualForm");if(!f)return;populateFonts();Object.entries(visual).forEach(([k,v])=>{if(f.elements[k]&&k!=="heroImage")f.elements[k].value=v});updateVisualOutputs();renderHeroPreview()}
 document.querySelectorAll('#visualForm input[type="range"]').forEach(inp=>inp.addEventListener("input",updateVisualOutputs));document.getElementById("heroImageInput")?.addEventListener("change",e=>fileToData(e.target.files[0],src=>{visual.heroImage=src;renderHeroPreview()}));document.getElementById("removeHeroImage")?.addEventListener("click",()=>{visual.heroImage="";renderHeroPreview()});
 document.getElementById("visualForm")?.addEventListener("submit",e=>{e.preventDefault();const f=e.currentTarget;Object.keys(visualDefaults()).forEach(k=>{if(k==="heroImage"||!f.elements[k])return;visual[k]=f.elements[k].type==="range"?Number(f.elements[k].value):f.elements[k].value});const visualToSave={...visual};delete visualToSave.heroImage;safeSet(VISUAL_KEY,visualToSave,"visual");durablePut(HERO_IMAGE_KEY,visual.heroImage||"");flash("visualSaveMsg","✓ Diseño premium guardado")});
-document.getElementById("resetVisual")?.addEventListener("click",()=>{if(confirm("¿Restaurar colores, tipografías, tamaños y animaciones originales?")){localStorage.removeItem(VISUAL_KEY);visual=visualDefaults();loadVisual();touchStatus();notifyPublic("visual");flash("visualSaveMsg","✓ Diseño original restaurado")}});
+document.getElementById("resetVisual")?.addEventListener("click",()=>{if(confirm("¿Restaurar colores, tipografías, tamaños y animaciones originales?")){siteStorage.removeItem(VISUAL_KEY);visual=visualDefaults();loadVisual();touchStatus();notifyPublic("visual");flash("visualSaveMsg","✓ Diseño original restaurado")}});
 
 
 // GUARDADO POR SECCIÓN: nada se escribe hasta presionar Guardar.
 function visualKeysInSection(section){return [...section.querySelectorAll("[name]")].map(el=>el.name).filter(Boolean)}
-document.querySelectorAll("[data-save-visual-section]").forEach(btn=>btn.addEventListener("click",()=>{const section=btn.closest(".admin-design-section"),keys=visualKeysInSection(section),f=document.getElementById("visualForm");let raw={};try{raw=JSON.parse(localStorage.getItem(VISUAL_KEY))||{}}catch(e){};keys.forEach(k=>{if(f.elements[k])raw[k]=readField(f.elements[k])});if(section.querySelector("#heroUploadPreview")){delete raw.heroImage;durablePut(HERO_IMAGE_KEY,visual.heroImage||"")}safeSet(VISUAL_KEY,raw,"visual");const msg=btn.parentElement.querySelector("[data-msg-visual]");if(msg){msg.textContent="✓ Sección guardada";setTimeout(()=>msg.textContent="",2200)}}));
-document.querySelectorAll("[data-reset-visual-section]").forEach(btn=>btn.addEventListener("click",()=>{const section=btn.closest(".admin-design-section"),keys=visualKeysInSection(section);let raw={};try{raw=JSON.parse(localStorage.getItem(VISUAL_KEY))||{}}catch(e){};keys.forEach(k=>delete raw[k]);if(section.querySelector("#heroUploadPreview")){delete raw.heroImage;visual.heroImage="";durableDelete(HERO_IMAGE_KEY)}if(Object.keys(raw).length)localStorage.setItem(VISUAL_KEY,JSON.stringify(raw));else localStorage.removeItem(VISUAL_KEY);loadVisual();notifyPublic("visual");const msg=btn.parentElement.querySelector("[data-msg-visual]");if(msg){msg.textContent="✓ Usa nuevamente CSS/código";setTimeout(()=>msg.textContent="",2200)}}));
+document.querySelectorAll("[data-save-visual-section]").forEach(btn=>btn.addEventListener("click",()=>{const section=btn.closest(".admin-design-section"),keys=visualKeysInSection(section),f=document.getElementById("visualForm");let raw={};try{raw=JSON.parse(siteStorage.getItem(VISUAL_KEY))||{}}catch(e){};keys.forEach(k=>{if(f.elements[k])raw[k]=readField(f.elements[k])});if(section.querySelector("#heroUploadPreview")){delete raw.heroImage;durablePut(HERO_IMAGE_KEY,visual.heroImage||"")}safeSet(VISUAL_KEY,raw,"visual");const msg=btn.parentElement.querySelector("[data-msg-visual]");if(msg){msg.textContent="✓ Sección guardada";setTimeout(()=>msg.textContent="",2200)}}));
+document.querySelectorAll("[data-reset-visual-section]").forEach(btn=>btn.addEventListener("click",()=>{const section=btn.closest(".admin-design-section"),keys=visualKeysInSection(section);let raw={};try{raw=JSON.parse(siteStorage.getItem(VISUAL_KEY))||{}}catch(e){};keys.forEach(k=>delete raw[k]);if(section.querySelector("#heroUploadPreview")){delete raw.heroImage;visual.heroImage="";durableDelete(HERO_IMAGE_KEY)}if(Object.keys(raw).length)siteStorage.setItem(VISUAL_KEY,JSON.stringify(raw));else siteStorage.removeItem(VISUAL_KEY);loadVisual();notifyPublic("visual");const msg=btn.parentElement.querySelector("[data-msg-visual]");if(msg){msg.textContent="✓ Usa nuevamente CSS/código";setTimeout(()=>msg.textContent="",2200)}}));
 // BACKUPS
 function snapshot(){return {version:"Caressano-V8-original-pro",createdAt:new Date().toISOString(),data:getData(),about:getAbout(),visual:getVisual(),home:getHome(),banner:getBanner(),news:getNews(),newsStyle:getNewsStyle(),modelsCopy:getModelsCopy()}}
-document.getElementById("exportBackup")?.addEventListener("click",()=>{const blob=new Blob([JSON.stringify(snapshot(),null,2)],{type:"application/json"}),a=document.createElement("a"),stamp=new Date().toISOString().slice(0,10);a.href=URL.createObjectURL(blob);a.download=`caressano-backup-${stamp}.json`;a.click();URL.revokeObjectURL(a.href);document.getElementById("backupMessage").textContent="✓ Backup descargado correctamente."});
-document.getElementById("importBackup")?.addEventListener("change",e=>{const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=()=>{try{const b=JSON.parse(r.result);if(!b.data)throw new Error();if(!confirm("¿Restaurar este backup? Los datos locales actuales serán reemplazados."))return;localStorage.setItem(DATA_KEY,JSON.stringify(b.data));if(b.about)localStorage.setItem(ABOUT_KEY,JSON.stringify(b.about));if(b.visual)localStorage.setItem(VISUAL_KEY,JSON.stringify(b.visual));if(b.home)localStorage.setItem(HOME_KEY,JSON.stringify(b.home));if(b.banner)localStorage.setItem(BANNER_KEY,JSON.stringify(b.banner));if(b.news)localStorage.setItem(NEWS_KEY,JSON.stringify(b.news));if(b.newsStyle)localStorage.setItem(NEWS_STYLE_KEY,JSON.stringify(b.newsStyle));if(b.modelsCopy)localStorage.setItem(MODELS_COPY_KEY,JSON.stringify(b.modelsCopy));data=getData();loadAll();notifyPublic("backup");document.getElementById("backupMessage").textContent="✓ Backup restaurado."}catch(err){document.getElementById("backupMessage").textContent="No se pudo importar: el archivo no parece ser un backup válido de Caressano."}};r.readAsText(file)});
-document.getElementById("resetAll")?.addEventListener("click",()=>{if(confirm("Esto restaurará los datos locales del V5. ¿Continuar?")){localStorage.removeItem(DATA_KEY);localStorage.removeItem(ABOUT_KEY);localStorage.removeItem(VISUAL_KEY);localStorage.removeItem(HOME_KEY);localStorage.removeItem(BANNER_KEY);localStorage.removeItem(NEWS_KEY);localStorage.removeItem(NEWS_STYLE_KEY);localStorage.removeItem(MODELS_COPY_KEY);data=clone(DEFAULTS);saveData(data);about=aboutDefaults();visual=visualDefaults();loadAll();document.getElementById("backupMessage").textContent="✓ Datos locales restaurados."}});
+document.getElementById("exportBackup")?.addEventListener("click",async()=>{const backup=snapshot();backup.heroImage=await durableGet(HERO_IMAGE_KEY);const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"}),a=document.createElement("a"),stamp=new Date().toISOString().slice(0,10);a.href=URL.createObjectURL(blob);a.download=`caressano-backup-${stamp}.json`;a.click();URL.revokeObjectURL(a.href);document.getElementById("backupMessage").textContent="✓ Backup descargado correctamente."});
+document.getElementById("importBackup")?.addEventListener("change",e=>{const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=()=>{try{const b=JSON.parse(r.result);if(!b.data)throw new Error();if(!confirm("¿Restaurar este backup? Los datos locales actuales serán reemplazados."))return;siteStorage.setItem(DATA_KEY,JSON.stringify(b.data));if(b.about)siteStorage.setItem(ABOUT_KEY,JSON.stringify(b.about));if(b.visual)siteStorage.setItem(VISUAL_KEY,JSON.stringify(b.visual));if(b.home)siteStorage.setItem(HOME_KEY,JSON.stringify(b.home));if(b.banner)siteStorage.setItem(BANNER_KEY,JSON.stringify(b.banner));if(b.news)siteStorage.setItem(NEWS_KEY,JSON.stringify(b.news));if(b.newsStyle)siteStorage.setItem(NEWS_STYLE_KEY,JSON.stringify(b.newsStyle));if(b.modelsCopy)siteStorage.setItem(MODELS_COPY_KEY,JSON.stringify(b.modelsCopy));if(Object.prototype.hasOwnProperty.call(b,"heroImage"))durablePut(HERO_IMAGE_KEY,b.heroImage);data=getData();loadAll();notifyPublic("backup");document.getElementById("backupMessage").textContent="✓ Backup restaurado."}catch(err){document.getElementById("backupMessage").textContent="No se pudo importar: el archivo no parece ser un backup válido de Caressano."}};r.readAsText(file)});
+document.getElementById("resetAll")?.addEventListener("click",()=>{if(confirm("Esto restaurará los datos locales del V5. ¿Continuar?")){siteStorage.removeItem(DATA_KEY);siteStorage.removeItem(ABOUT_KEY);siteStorage.removeItem(VISUAL_KEY);siteStorage.removeItem(HOME_KEY);siteStorage.removeItem(BANNER_KEY);siteStorage.removeItem(NEWS_KEY);siteStorage.removeItem(NEWS_STYLE_KEY);siteStorage.removeItem(MODELS_COPY_KEY);data=clone(DEFAULTS);saveData(data);about=aboutDefaults();visual=visualDefaults();loadAll();document.getElementById("backupMessage").textContent="✓ Datos locales restaurados."}});
 
 function loadAll(){data=getData();loadHome();renderNewsAdmin();renderNewsStyleAdmin();loadModelsCopy();renderBannerAdmin(true);loadContact();loadAbout();loadVisual();loadPostularButtonControls();refreshSummary();renderModels()}
 
