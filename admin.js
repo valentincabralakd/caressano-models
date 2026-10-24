@@ -34,9 +34,12 @@ function mirrorExistingSettings(){CARESSANO_PERSIST_KEYS.forEach(k=>{const v=sit
 // Así, si el navegador o una inicialización deja valores viejos en localStorage, no pisan lo guardado.
 async function durableSyncAll(){for(const k of CARESSANO_PERSIST_KEYS){const v=siteStorage.getItem(k);if(v!==null)queueSetting(k,v)}}
 
+const PENDING_KEY='caressanoPendingPublishV2';
+let publicationRevision=0;
 const caressanoChannel=("BroadcastChannel" in window)?new BroadcastChannel("caressano-live"):null;
 
 function notifyPublic(area="content"){
+  queueSetting(PENDING_KEY, String(++publicationRevision));
   try{
     caressanoChannel?.postMessage({
       type:"refresh",
@@ -297,8 +300,12 @@ async function applyRemoteSiteState(state){
   return true;
 }
 
-let publicationQueue=Promise.resolve();
-function publishSiteState(){publicationQueue=publicationQueue.then(performPublishSiteState,performPublishSiteState);return publicationQueue}
+let publicationTask=null, publicationAgain=false;
+function publishSiteState(){
+ if(publicationTask){publicationAgain=true;return publicationTask}
+ publicationTask=(async()=>{let ok;do{publicationAgain=false;ok=await performPublishSiteState()}while(ok&&publicationAgain);return ok})().finally(()=>{publicationTask=null});
+ return publicationTask;
+}
 async function performPublishSiteState(){
 
   const token=
@@ -320,17 +327,24 @@ async function performPublishSiteState(){
   try{
 
     await flushSettings();
-    const state=
-      await collectSiteState();
+    const revision=publicationRevision;
+    const source=await collectSiteState();
+    if(!globalThis.CaressanoMedia)throw new Error('No se cargó media-upload.js. Revisá que también esté subido a GitHub.');
+    const state=await CaressanoMedia.prepare(source,{
+     url:SUPABASE_URL,key:SUPABASE_KEY,token,
+     readCache:durableGet,writeCache:durablePut,
+     progress:n=>{if(status)status.textContent='● SUBIENDO FOTO '+n+'...'}
+    });
 
     const response=await fetch(
       SUPABASE_URL+
       "/rest/v1/"+
       REMOTE_SITE_TABLE+
       "?id=eq."+
-      REMOTE_SITE_ID,
+      REMOTE_SITE_ID+"&select=id",
       {
         method:"PATCH",
+        signal:AbortSignal.timeout(45000),
 
         headers:{
           "apikey":SUPABASE_KEY,
@@ -357,7 +371,9 @@ async function performPublishSiteState(){
     }
 
     const updated=await response.json();
-    if(!Array.isArray(updated)||updated.length!==1)throw new Error("Supabase no actualizó la fila main. Revisá permisos y existencia de la fila.");
+    if(!Array.isArray(updated)||updated.length!==1||String(updated[0].id)!==REMOTE_SITE_ID)throw new Error("Supabase no actualizó la fila main. Revisá permisos y existencia de la fila.");
+    if(revision===publicationRevision)await durablePut(PENDING_KEY,null);
+    try{caressanoChannel?.postMessage({type:"published",at:Date.now()})}catch(e){}
     if(status){
 
       status.textContent=
@@ -398,7 +414,7 @@ async function performPublishSiteState(){
     }
 
     alert(
-      "Los cambios se guardaron en el panel, pero no se pudieron publicar."
+      "Los cambios siguen guardados en este dispositivo. No se pudo publicar.\n\n"+String(error.message||error).slice(0,700)+"\n\nExportá un backup antes de cambiar de navegador."
     );
 
     return false;
@@ -427,9 +443,14 @@ function scheduleRemotePublish(){
 }
 
 async function syncAdminWithRemote(){
+  const pending=await durableGet(PENDING_KEY);
+  if(pending){loadAll();const status=document.getElementById("globalStatus");if(status)status.textContent="● CAMBIOS LOCALES PENDIENTES";return false}
+
 
   try{
 
+    const recovery=await collectSiteState();
+    if(Object.keys(recovery).length)await durablePut('caressanoRecoveryBeforeSyncV2',JSON.stringify(recovery));
     const remote=
       await readRemoteSiteState();
 
@@ -476,7 +497,7 @@ function optimizeImageFile(file,cb){if(!file)return;const r=new FileReader();r.o
 function fileToData(file,cb){if(!file)return;if((file.type||"").startsWith("image/"))return optimizeImageFile(file,cb);const r=new FileReader();r.onload=()=>cb(r.result);r.onerror=()=>alert("No se pudo leer el archivo seleccionado.");r.readAsDataURL(file)}
 function filesToData(files,cb){const list=[...files];if(!list.length)return cb([]);Promise.all(list.map(f=>new Promise(res=>fileToData(f,res)))).then(cb)}
 function fileToMedia(file,cb){if(!file)return;const isVideo=(file.type||"").startsWith("video/");if(isVideo&&file.size>8*1024*1024){alert("Ese video es demasiado pesado para la versión local. Usá uno de menos de 8 MB o una foto.");return}if(!isVideo)return optimizeImageFile(file,src=>cb({src,type:"image",name:file.name||"foto"}));const r=new FileReader();r.onload=()=>cb({src:r.result,type:"video",name:file.name||"video"});r.onerror=()=>alert("No se pudo leer el video seleccionado.");r.readAsDataURL(file)}
-function fileToNewsMedia(file,cb){if(!file)return;if((file.type||"").startsWith("video/"))return fileToMedia(file,cb);const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{const max=2400,scale=Math.min(1,max/Math.max(img.width,img.height)),w=Math.max(1,Math.round(img.width*scale)),h=Math.max(1,Math.round(img.height*scale)),c=document.createElement("canvas");c.width=w;c.height=h;const x=c.getContext("2d");x.drawImage(img,0,0,w,h);let src;try{src=c.toDataURL("image/jpeg",.94)}catch(e){src=r.result}cb({src,type:"image",name:file.name||"foto"})};img.onerror=()=>cb({src:r.result,type:"image",name:file.name||"foto"});img.src=r.result};r.readAsDataURL(file)}
+function fileToNewsMedia(file,cb){return fileToMedia(file,cb)}
 function filesToMedia(files,cb){const list=[...files];if(!list.length)return cb([]);Promise.all(list.map(f=>new Promise(res=>fileToMedia(f,res)))).then(cb)}
 function normMedia(x){return typeof x==="string"?{src:x,type:"image"}:{src:"",type:"image",...(x||{})}}
 function flash(id,text="✓ Cambios guardados"){const el=document.getElementById(id);if(!el)return;el.textContent=text;setTimeout(()=>el.textContent="",2600)}
@@ -489,6 +510,15 @@ function showLogin(){login.hidden=false;shell.hidden=true}
 document.addEventListener("DOMContentLoaded",async()=>{
   const restored=await durableRestore();
   mirrorExistingSettings();
+  // Existing data URLs may be unpublished edits from the previous version.
+  // Preserve them on the first upgrade rather than hydrating from an older remote row.
+  if(!await durableGet('caressanoStorageUpgradeV2')){
+   const current=await collectSiteState();
+   if(Object.values(current).some(v=>typeof v==='string'&&/data:(image|video)\//.test(v))){
+    await durablePut(PENDING_KEY,'upgrade-recovery');
+   }
+   await durablePut('caressanoStorageUpgradeV2','1');
+  }
 
   if(sessionStorage.getItem(LOGIN_KEY)){
     showAdmin();
@@ -585,7 +615,7 @@ document.getElementById("newsImageHeight")?.addEventListener("input",e=>{const o
 document.getElementById("addNewsItem")?.addEventListener("click",()=>{newsItems.push({title:"NUEVA NOVEDAD",subtitle:"Escribí un subtítulo.",url:"",cta:"VER NOVEDAD"});renderNewsAdmin()});
 document.getElementById("newsFeatureInput")?.addEventListener("change",e=>{const file=e.currentTarget.files?.[0];if(!file)return;fileToNewsMedia(file,media=>{if(media?.type!=="image"){alert("Para este bloque usá una imagen.");return}newsStyle.image=media.src;const up=document.getElementById("newsFeatureUpload");if(up){up.classList.add("has-photo");up.style.backgroundImage=`url("${String(media.src).replace(/"/g,'%22')}")`}flash("newsSaveMsg","✓ Foto lista. Tocá GUARDAR NOVEDADES")})});
 document.getElementById("removeNewsFeature")?.addEventListener("click",()=>{newsStyle.image="";const up=document.getElementById("newsFeatureUpload");if(up){up.classList.remove("has-photo");up.style.backgroundImage=""}flash("newsSaveMsg","✓ Foto quitada. Tocá GUARDAR NOVEDADES")});
-document.getElementById("saveNewsSection")?.addEventListener("click",()=>{collectNewsStyle();const a=saveNews(),b=safeSet(NEWS_STYLE_KEY,newsStyle,"news");if(a&&b){notifyPublic("news");flash("newsSaveMsg","✓ Novedades guardadas y publicadas")}});
+document.getElementById("saveNewsSection")?.addEventListener("click",()=>{collectNewsStyle();const a=saveNews(),b=safeSet(NEWS_STYLE_KEY,newsStyle,"news");if(a&&b){notifyPublic("news");flash("newsSaveMsg","✓ Novedades guardadas; verificá el estado de publicación")}});
 document.getElementById("resetNewsSection")?.addEventListener("click",()=>{if(confirm("¿Restaurar Novedades desde el código?")){siteStorage.removeItem(NEWS_KEY);siteStorage.removeItem(NEWS_STYLE_KEY);newsItems=getNews();newsStyle=getNewsStyle();renderNewsAdmin();renderNewsStyleAdmin();notifyPublic("news");flash("newsSaveMsg","✓ Novedades restauradas desde código")}});
 
 // BANNER EDITORIAL
@@ -729,3 +759,7 @@ document.getElementById("resetAll")?.addEventListener("click",()=>{if(confirm("E
 function loadAll(){data=getData();loadHome();renderNewsAdmin();renderNewsStyleAdmin();loadModelsCopy();renderBannerAdmin(true);loadContact();loadAbout();loadVisual();loadPostularButtonControls();refreshSummary();renderModels()}
 
 window.addEventListener("pagehide",()=>{durableSyncAll()});
+
+// Retry persisted edits without selecting the photographs again.
+document.getElementById("retryPublish")?.addEventListener("click",()=>{clearTimeout(remotePublishTimer);publishSiteState()});
+

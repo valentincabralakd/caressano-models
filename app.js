@@ -22,7 +22,7 @@ function queueSetting(key,value){
  }).catch(error=>{settingsError=error;console.error('No se pudo guardar en este dispositivo:',error)});
 }
 async function flushSettings(){await settingsPending;if(settingsError){const error=settingsError;settingsError=null;throw error}}
-function caressanoDB(){return new Promise((resolve,reject)=>{const q=indexedDB.open("caressanoModelsPersistent",1);q.onupgradeneeded=()=>{if(!q.result.objectStoreNames.contains("settings"))q.result.createObjectStore("settings")};q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)})}
+function caressanoDB(){return new Promise((resolve,reject)=>{const q=indexedDB.open("caressanoModelsPublicV2",1);q.onupgradeneeded=()=>{if(!q.result.objectStoreNames.contains("settings"))q.result.createObjectStore("settings")};q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)})}
 async function durablePut(key,value){queueSetting(key,value);await flushSettings()}
 async function durableGet(key){try{await settingsPending;const db=await caressanoDB();const value=await new Promise((res,rej)=>{const tx=db.transaction("settings","readonly"),q=tx.objectStore("settings").get(key);q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)});db.close();return value}catch(e){console.warn("Lectura IndexedDB:",e);return undefined}}
 async function durableDelete(key){queueSetting(key,null);await flushSettings()}
@@ -383,6 +383,6 @@ const CARESSANO_LIVE_KEYS=new Set(["caressanoDemo","caressanoAboutDemo","caressa
 let caressanoRefreshTimer;
 function refreshCaressanoLive(){clearTimeout(caressanoRefreshTimer);caressanoRefreshTimer=setTimeout(async()=>{await durableRestore();try{applyVisualAdminSettings();applyStoredHeroImage();applyContent();applyHomeAdminContent();applyNews();applyModelsCopy();applyGlobalContact();applyAboutAdminContent();editorializeAbout();applyAboutBanner();applyPremiumBanner();if(document.getElementById("models"))renderModels()}catch(err){console.warn("Actualización en vivo parcial",err)}},80)}
 window.addEventListener("storage",e=>{if(CARESSANO_LIVE_KEYS.has(e.key))refreshCaressanoLive()});
-if("BroadcastChannel" in window){try{const ch=new BroadcastChannel("caressano-live");ch.onmessage=e=>{if(e.data?.type==="refresh")refreshCaressanoLive()}}catch(e){}}
+if("BroadcastChannel" in window){try{const ch=new BroadcastChannel("caressano-live");ch.onmessage=async e=>{if(e.data?.type==="published"){if(await loadCaressanoFromSupabase())refreshCaressanoLive()}else if(e.data?.type==="refresh")refreshCaressanoLive()}}catch(e){}}
 
 window.addEventListener("pagehide",()=>{durableSyncAll()});

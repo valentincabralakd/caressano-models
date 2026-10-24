@@ -14,10 +14,11 @@ async function run(){
  response={ok:true,json:async()=>[]};assert.equal(await ctx.loadCaressanoFromSupabase(),false);
  const admin=fs.readFileSync(dir+'admin.js','utf8');const a=admin.indexOf('async function performPublishSiteState()'),b=admin.indexOf('function scheduleRemotePublish()',a);
  let result=[],sent;
- const panel={getAdminToken:async()=>'mock-token',document:{getElementById:()=>null},flushSettings:async()=>{},collectSiteState:async()=>remote,SUPABASE_URL:'https://test.invalid',SUPABASE_KEY:'test',REMOTE_SITE_TABLE:'caressano_site',REMOTE_SITE_ID:'main',console:{error(){}},alert(){},fetch:async(url,options)=>{sent=options;return{ok:true,json:async()=>result}}};
+ const panel={AbortSignal,publicationRevision:0,PENDING_KEY:'pending',durableGet:async()=>null,durablePut:async()=>{},CaressanoMedia:{prepare:async source=>source},getAdminToken:async()=>'mock-token',document:{getElementById:()=>null},flushSettings:async()=>{},collectSiteState:async()=>remote,SUPABASE_URL:'https://test.invalid',SUPABASE_KEY:'test',REMOTE_SITE_TABLE:'caressano_site',REMOTE_SITE_ID:'main',console:{error(){}},alert(){},fetch:async(url,options)=>{sent=options;return{ok:true,json:async()=>result}}};
  vm.createContext(panel);vm.runInContext(admin.slice(a,b),panel);
  assert.equal(await panel.performPublishSiteState(),false);result=[{id:'main'}];assert.equal(await panel.performPublishSiteState(),true);assert.equal(JSON.parse(sent.body).data.caressanoDemo,remote.caressanoDemo);assert.equal(sent.headers.Prefer,'return=representation');
  console.log('PASS mocked Supabase: large remote state, hero, Models copy, no-store, abort signal, offline, empty row, zero-row PATCH rejected, successful PATCH preserves photos');
 }
 run().catch(e=>{console.error(e);process.exitCode=1});
+
 
