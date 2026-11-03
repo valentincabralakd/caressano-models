@@ -100,6 +100,16 @@ function observeReveals(){
 
 function applyGlobalContact(){
   const d=getData(), c=d.content?.contact||{};
+  // All application and portfolio buttons use Contacto > WhatsApp.
+  document.querySelectorAll('.models-contact a.button').forEach(a=>{
+    a.href=whatsappHref(c.phone);
+    a.target="_blank";
+    a.rel="noopener";
+  });
+  const profileName=document.querySelector('.profile-copy h1')?.textContent||"";
+  document.querySelectorAll('.booking-whatsapp').forEach(a=>{
+    a.href=whatsappHref(c.phone,profileName);
+  });
   const instagram=(c.instagram||"caressanomodels").replace(/^@/,"");
   const icon=n=>({instagram:`<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" class="fill"/></svg>`,mail:`<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg>`,whatsapp:`<svg viewBox="0 0 24 24"><path d="M20 11.5a8 8 0 0 1-11.8 7L4 20l1.4-4A8 8 0 1 1 20 11.5Z"/><path d="M9 8.5c.5 3 2 4.5 5 5l1-1.3 2 .9c-.2 1.7-1.3 2.5-2.8 2.4-4.4-.4-7.2-3.2-7.6-7.6-.1-1.5.7-2.6 2.4-2.8l.9 2-1.3 1Z"/></svg>`,location:`<svg viewBox="0 0 24 24"><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg>`}[n]||"");
   document.querySelectorAll('.v5-drawer a[href*="instagram.com"]').forEach(a=>{a.href=`https://www.instagram.com/${instagram}/`;a.innerHTML=`${icon("instagram")}<span>@${instagram.toUpperCase()}</span>`});
