@@ -79,7 +79,7 @@ function renderModels(){
       <div class="photo model-photo placeholder-${i%4}"></div>
       <div class="model-meta"><span>${m.category}</span><h3>${m.name}</h3><small>ESPACIO RESERVADO</small></div>
     </div>` : `
-    <a class="model-card reveal" href="modelo.html?id=${encodeURIComponent(m.id)}">
+    <a class="model-card reveal" data-model-id="${escapeHTML(m.id)}" href="modelo.html?id=${encodeURIComponent(m.id)}">
       <div class="photo model-photo model-photo-custom ${!m.image?'placeholder-'+(i%4):''}" ${m.image?`style="background-image:url('${m.image}');--model-w:${Number(m.photoWidth)||100}%;--model-h:${Number(m.photoHeight)||390}px;--model-fit:${m.photoFit==="contain"?"contain":"cover"};--model-filter:${m.photoFilter==="mono"?"grayscale(1)":"none"}"`:""}></div>
       <div class="model-meta"><span>${m.category}</span><h3>${m.name}</h3><small>VER PERFIL →</small></div>
     </a>`).join("");
@@ -201,7 +201,7 @@ function applyNews(){
   if(media){if(style.image){media.classList.add('has-image');media.style.backgroundImage=`url("${String(style.image).replace(/"/g,'%22')}")`;media.style.backgroundSize=style.imageFit==='contain'?'contain':'cover';media.style.filter=style.imageFilter==='mono'?'grayscale(1)':'none';media.innerHTML=''}else{media.classList.remove('has-image');media.style.backgroundImage='';media.style.backgroundSize='cover';media.style.filter='none';media.innerHTML='<span>CARESSANO / NEWS</span>'}}
 }
 
-function applyAboutBanner(){const host=document.getElementById("aboutMediaBanner"),track=document.getElementById("aboutMediaBannerTrack");if(!host||!track)return;let a;try{a=JSON.parse(siteStorage.getItem("caressanoAboutDemo"))||{}}catch(e){a={}}const b={enabled:false,mode:"photos",height:300,speed:82,gap:20,itemWidth:30,media:[],...(a.banner||{})};host.hidden=!b.enabled;if(!b.enabled)return;host.style.setProperty("--reel-h",`${b.height}px`);host.style.setProperty("--reel-speed",`${b.speed}s`);host.style.setProperty("--reel-gap",`${b.gap}px`);host.style.setProperty("--reel-item-w",`${b.itemWidth}vw`);const media=(b.media||[]).map(normalizeMedia).filter(m=>m.src);if(!media.length){host.hidden=true;return}if(b.mode==="video"){const m=media.find(x=>x.type==="video")||media[0];track.className="premium-reel-track single-video-track";track.innerHTML=m.type==="video"?`<video class="about-banner-video" src="${m.src}" muted loop autoplay playsinline></video>`:`<img class="about-banner-video" src="${m.src}" alt="">`}else{track.className="premium-reel-track";const imgs=media.filter(x=>x.type==="image");const use=imgs.length?imgs:media;const tile=m=>`<div class="premium-reel-item">${m.type==="video"?`<video src="${m.src}" muted loop autoplay playsinline></video>`:`<img src="${m.src}" alt="">`}</div>`;const html=use.map(tile).join("");track.innerHTML=html+html}}
+function applyAboutBanner(){const host=document.getElementById("aboutMediaBanner"),track=document.getElementById("aboutMediaBannerTrack");if(!host||!track)return;let a;try{a=JSON.parse(siteStorage.getItem("caressanoAboutDemo"))||{}}catch(e){a={}}const b={enabled:false,mode:"photos",height:300,speed:82,gap:20,itemWidth:30,media:[],...(a.banner||{})};host.hidden=!b.enabled;if(!b.enabled)return;host.style.setProperty("--reel-h",`${b.height}px`);host.style.setProperty("--reel-speed",`${b.speed}s`);host.style.setProperty("--reel-gap",`${b.gap}px`);host.style.setProperty("--reel-item-w",`${b.itemWidth}vw`);const media=(b.media||[]).map(normalizeMedia).filter(m=>m.src);if(!media.length){host.hidden=true;return}if(b.mode==="video"){const m=media.find(x=>x.type==="video")||media[0];track.className="premium-reel-track single-video-track";track.innerHTML=m.type==="video"?`<video class="about-banner-video" src="${m.src}" muted loop autoplay playsinline></video>`:`<img class="about-banner-video" src="${m.src}" alt="">`}else{track.className="premium-reel-track";const imgs=media.filter(x=>x.type==="image");const use=imgs.length?imgs:media;const tile=m=>`<div class="premium-reel-item" data-aspect="${["original","portrait","landscape","square","wide"].includes(m.aspect)?m.aspect:""}">${m.type==="video"?`<video src="${m.src}" muted loop autoplay playsinline></video>`:`<img src="${m.src}" alt="">`}</div>`;const html=use.map(tile).join("");track.innerHTML=html+html}}
 
 // ===== BANNER EDITORIAL =====
 function applyPremiumBanner(){
@@ -211,12 +211,13 @@ function applyPremiumBanner(){
   const reel=document.getElementById("premiumReel"),track=document.getElementById("premiumReelTrack");if(!reel||!track)return;
   reel.hidden=!b.enabled;if(!b.enabled)return;reel.style.setProperty("--reel-h",`${Number(b.height)||280}px`);reel.style.setProperty("--reel-speed",`${Number(b.speed)||52}s`);reel.style.setProperty("--reel-gap",`${Number(b.gap)||20}px`);reel.style.setProperty("--reel-overlay",String((Number(b.overlay)||0)/100));reel.style.setProperty("--reel-top",`${Number(b.topSpace)}px`);reel.style.setProperty("--reel-item-w",`${Number(b.itemWidth)||26}vw`);reel.style.setProperty("--reel-radius",`${Number(b.radius)||0}px`);reel.style.setProperty("--reel-fade",`${Number(b.fade)||0}%`);reel.style.setProperty("--reel-border-w",`${Number(b.borderWidth)||0}px`);
   const media=(b.media||[]).map(normalizeMedia).filter(m=>m.src);if(!media.length){reel.hidden=true;return}
-  if(b.mode==="video"){const m=media.find(x=>x.type==="video")||media[0];track.className="premium-reel-track single-video-track";track.innerHTML=m.type==="video"?`<video class="about-banner-video" src="${m.src}" muted loop autoplay playsinline></video>`:`<img class="about-banner-video" src="${m.src}" alt="">`;return}track.className="premium-reel-track";const photos=media.filter(x=>x.type==="image");const use=photos.length?photos:media;const tile=m=>`<div class="premium-reel-item">${m.type==="video"?`<video src="${m.src}" muted loop autoplay playsinline></video>`:`<img src="${m.src}" alt="" loading="lazy">`}</div>`;const html=use.map(tile).join("");track.innerHTML=html+html;
+  if(b.mode==="video"){const m=media.find(x=>x.type==="video")||media[0];track.className="premium-reel-track single-video-track";track.innerHTML=m.type==="video"?`<video class="about-banner-video" src="${m.src}" muted loop autoplay playsinline></video>`:`<img class="about-banner-video" src="${m.src}" alt="">`;return}track.className="premium-reel-track";const photos=media.filter(x=>x.type==="image");const use=photos.length?photos:media;const tile=m=>`<div class="premium-reel-item" data-aspect="${["original","portrait","landscape","square","wide"].includes(m.aspect)?m.aspect:""}">${m.type==="video"?`<video src="${m.src}" muted loop autoplay playsinline></video>`:`<img src="${m.src}" alt="" loading="lazy">`}</div>`;const html=use.map(tile).join("");track.innerHTML=html+html;
 }
 
 // ===== AJUSTES VISUALES DESDE EL PANEL LOCAL =====
 function applyVisualAdminSettings(){
   let v;try{v=JSON.parse(siteStorage.getItem("caressanoVisualDemo"))}catch(e){}
+  globalThis.CaressanoHeroMotion?.apply(v||{});
   if(!v)return;
   const safe=x=>String(x||"").replace(/[<>]/g,"");
   const rules=[];
@@ -252,7 +253,7 @@ async function applyStoredHeroImage(){
 }
 
 function initPage(){
-  applyVisualAdminSettings(); applyStoredHeroImage(); applyContent(); applyHomeAdminContent();applyNews(); applyModelsCopy(); applyGlobalContact(); applyAboutAdminContent(); editorializeAbout(); applyAboutBanner(); applyPremiumBanner(); renderModels(); observeReveals();
+  applyVisualAdminSettings(); applyStoredHeroImage(); applyContent(); applyHomeAdminContent();applyNews(); applyModelsCopy(); applyGlobalContact(); applyAboutAdminContent(); editorializeAbout(); applyAboutBanner(); applyPremiumBanner(); renderModels(); observeReveals(); globalThis.CaressanoRounded?.apply();
   const drawer=document.getElementById("contactDrawer"), openBtn=document.getElementById("contactOpen"), closeBtn=document.getElementById("contactClose"), backdrop=document.getElementById("contactBackdrop");
   const setDrawer=(open)=>{drawer?.classList.toggle("open",open);backdrop?.classList.toggle("open",open);drawer?.setAttribute("aria-hidden",String(!open));};
   openBtn?.addEventListener("click",()=>setDrawer(true)); closeBtn?.addEventListener("click",()=>setDrawer(false)); backdrop?.addEventListener("click",()=>setDrawer(false));
@@ -283,8 +284,10 @@ function modelStatsMarkup(m){
 function initProfile(){
   const d=getData(), publicModels=d.models.filter(x=>!x.placeholder&&x.published!==false), id=new URLSearchParams(location.search).get("id")||publicModels[0]?.id, m=publicModels.find(x=>x.id===id)||publicModels[0];
   const root=document.getElementById("profile"); if(!m){root.innerHTML="<p>No hay modelos.</p>";return}
+  root.dataset.modelId=m.id;
   const wa=whatsappHref(d.content?.contact?.phone,m.name);
   root.innerHTML=`
+  <a class="rd-profile-back" href="models.html">← VOLVER A MODELOS</a>
   <section class="profile-hero">
     <div class="profile-photo photo profile-main-photo ${!m.image?'placeholder-0':''}" data-main-src="${m.image||''}" ${m.image?`style="background-image:url('${m.image}');--profile-h:${Number(m.profilePhotoHeight)||720}px;--profile-fit:${m.profilePhotoFit==="cover"?"cover":"contain"};--profile-filter:${m.photoFilter==="mono"?"grayscale(1)":"none"}"`:""} title="Tocar para ampliar"></div>
     <div class="profile-copy"><p class="kicker accent-text">${m.category}</p><h1>${m.name}</h1>${modelStatsMarkup(m)}<p class="profile-bio">${m.bio}</p>
@@ -295,6 +298,7 @@ function initProfile(){
   const main=root.querySelector(".profile-main-photo");
   root.querySelectorAll(".portfolio-choice[data-media-type=image]").forEach(el=>el.addEventListener("click",()=>{const src=el.dataset.src;if(!src||!main)return;main.dataset.mainSrc=src;main.style.backgroundImage=`url('${src}')`;main.style.setProperty("--profile-filter",el.dataset.filter==="mono"?"grayscale(1)":"none");main.style.backgroundPosition=getComputedStyle(el).backgroundPosition;main.style.backgroundSize=getComputedStyle(el).backgroundSize;main.scrollIntoView({behavior:"smooth",block:"center"})}));
   if(main)main.addEventListener("click",()=>{const src=main.dataset.mainSrc;if(!src)return;const box=document.createElement("div");box.className="caressano-lightbox";box.innerHTML=`<button type="button" aria-label="Cerrar">×</button><img src="${src}" alt="${m.name}">`;box.querySelector("button").onclick=()=>box.remove();box.onclick=e=>{if(e.target===box)box.remove()};document.body.appendChild(box)});
+  globalThis.CaressanoRounded?.apply();
   setTimeout(()=>document.getElementById("pageTransition")?.classList.remove("active"),120);
   document.querySelectorAll("a[href$='.html']").forEach(a=>a.addEventListener("click",e=>{e.preventDefault();document.getElementById("pageTransition")?.classList.add("active");setTimeout(()=>location.assign(a.getAttribute("href")),320)}));
 }
@@ -391,8 +395,9 @@ window.addEventListener("pageshow",event=>{
 // SINCRONIZACIÓN EN VIVO CON EL PANEL ORIGINAL
 const CARESSANO_LIVE_KEYS=new Set(["caressanoDemo","caressanoAboutDemo","caressanoVisualDemo","caressanoHomeDemo","caressanoBannerDemo","caressanoNewsDemo","caressanoModelsCopyDemo"]);
 let caressanoRefreshTimer;
-function refreshCaressanoLive(){clearTimeout(caressanoRefreshTimer);caressanoRefreshTimer=setTimeout(async()=>{await durableRestore();try{applyVisualAdminSettings();applyStoredHeroImage();applyContent();applyHomeAdminContent();applyNews();applyModelsCopy();applyGlobalContact();applyAboutAdminContent();editorializeAbout();applyAboutBanner();applyPremiumBanner();if(document.getElementById("models"))renderModels()}catch(err){console.warn("Actualización en vivo parcial",err)}},80)}
+function refreshCaressanoLive(){clearTimeout(caressanoRefreshTimer);caressanoRefreshTimer=setTimeout(async()=>{await durableRestore();try{applyVisualAdminSettings();applyStoredHeroImage();applyContent();applyHomeAdminContent();applyNews();applyModelsCopy();applyGlobalContact();applyAboutAdminContent();editorializeAbout();applyAboutBanner();applyPremiumBanner();if(document.getElementById("models"))renderModels();globalThis.CaressanoRounded?.apply()}catch(err){console.warn("Actualización en vivo parcial",err)}},80)}
 window.addEventListener("storage",e=>{if(CARESSANO_LIVE_KEYS.has(e.key))refreshCaressanoLive()});
 if("BroadcastChannel" in window){try{const ch=new BroadcastChannel("caressano-live");ch.onmessage=async e=>{if(e.data?.type==="published"){if(await loadCaressanoFromSupabase())refreshCaressanoLive()}else if(e.data?.type==="refresh")refreshCaressanoLive()}}catch(e){}}
 
 window.addEventListener("pagehide",()=>{durableSyncAll()});
+
