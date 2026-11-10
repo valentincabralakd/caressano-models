@@ -55,3 +55,11 @@ Seis pruebas automáticas: encuadre por pantalla y proporciones contain/cover, o
 Comprobaciones visuales locales: perfil en 390 px y 834 px sin desbordes; carrusel lateral en teléfono; editor de foto completa, guardado y recarga; cambio de teléfono sin aplicar el encuadre a tablet; selección de foto dentro del perfil sin copiar un tamaño incorrecto.
 No se ha actualizado GitHub, Vercel ni la base de producción.
 Comparación de computadora a 1280 px con la versión anterior: foto principal 596,03 × 720 px y foto de galería 584,55 × 520 px, mismas posiciones y columnas. Fotografías incluidas verificadas byte por byte sin cambios.
+
+## Banner de teléfono: versión 3
+Este ZIP incluye todas las correcciones anteriores y reemplaza al ZIP móvil/encuadres anterior.
+En teléfono (hasta 700 px), se elimina la regla antigua que imponía esquinas casi cuadradas al banner. Cada foto tiene recorte redondeado de 28 px; la portada ocupa 58% de la altura visible y el banner 32%, con límites para que no queden demasiado pequeños o grandes. Cada pieza usa 46% del ancho de pantalla. Computadora y tablet conservan su composición.
+En Diseño → Apariencia redondeada → Inicio en teléfono podés modificar altura de portada, altura de banner, ancho de cada fotografía y redondeado. Estos ajustes de la estética nueva tienen prioridad sobre la altura de teléfono del bloque de animación. Guardá apariencia después de modificarlos.
+Se mantiene el editor avanzado por foto, su orden, el contraste del encabezado y la calidad original.
+Comprobaciones de esta corrección: siete pruebas automáticas aprobadas; vista a 390 px sin desborde, redondeado efectivo con recorte, portada más baja, banner más alto; tablet a 834 px sin desborde. Se probó guardar un radio distinto desde el panel y comprobarlo en la página, y se volvió a 28 px.
+No se modificó producción. Subí el contenido descomprimido en la misma carpeta del sitio, reemplazando los archivos con el mismo nombre y agregando los nuevos; no borres fotos ni datos de Supabase.

@@ -1,6 +1,6 @@
 globalThis.CaressanoRounded=(()=>{
  const colors={pageBg:'#0d0d0d',pageText:'#f4f1e9',navBg:'#f1f1ef',navText:'#111111',cardBg:'#171717',cardText:'#f4f1e9',borderColor:'#73736f',newsBg:'#151515',newsText:'#f4f1e9',aboutBg:'#0d0d0d',aboutText:'#f4f1e9',ctaBg:'#ffffff',ctaText:'#111111',buttonBg:'#111111',buttonText:'#ffffff',profileButtonBg:'#f4f1e9',profileButtonText:'#111111'};
- const defaults={...colors,radius:28,gap:20,photoSizingRevision:2,modelAspect:'original',profileAspect:'original',galleryAspect:'original',aboutAspect:'original',bannerAspect:'portrait',newsAspect:'portrait',photoFit:'cover',textStyles:{}};
+ const defaults={...colors,radius:28,gap:20,photoSizingRevision:2,mobileHeroVh:58,mobileBannerVh:32,mobileBannerWidth:46,mobileBannerRadius:28,modelAspect:'original',profileAspect:'original',galleryAspect:'original',aboutAspect:'original',bannerAspect:'portrait',newsAspect:'portrait',photoFit:'cover',textStyles:{}};
  const ratios={portrait:'3 / 4',landscape:'4 / 3',square:'1 / 1',wide:'16 / 9'};
  const targets=[
  ['nav','Encabezado · enlaces','.v5-nav .v5-link',11,10],['hero','Portada · CARESSANO','.clean-brand',150,48],['heroSub','Portada · MODELS AGENCY','.clean-subtitle',12,8],['heroValues','Portada · valores','.clean-values',13,11],
@@ -14,7 +14,7 @@ globalThis.CaressanoRounded=(()=>{
  function normalize(raw={}){
   if(!raw||typeof raw!=='object')raw={};const out={...defaults};
   for(const k of Object.keys(colors))if(/^#[a-f\d]{6}$/i.test(raw[k]||''))out[k]=raw[k];
-  for(const [k,min,max] of [['radius',0,60],['gap',8,48]])if(Number.isFinite(Number(raw[k])))out[k]=Math.min(max,Math.max(min,Number(raw[k])));
+  for(const [k,min,max] of [['radius',0,60],['gap',8,48],['mobileHeroVh',45,80],['mobileBannerVh',26,45],['mobileBannerWidth',35,65],['mobileBannerRadius',12,48]])if(Number.isFinite(Number(raw[k])))out[k]=Math.min(max,Math.max(min,Number(raw[k])));
   for(const k of ['modelAspect','profileAspect','galleryAspect','aboutAspect','bannerAspect','newsAspect'])if((raw.photoSizingRevision===2||!['modelAspect','profileAspect','galleryAspect','aboutAspect'].includes(k))&&['original',...Object.keys(ratios)].includes(raw[k]))out[k]=raw[k];
   if(['cover','contain'].includes(raw.photoFit))out.photoFit=raw.photoFit;
   out.textStyles=raw.textStyles&&typeof raw.textStyles==='object'?raw.textStyles:{};return out;
@@ -43,7 +43,7 @@ globalThis.CaressanoRounded=(()=>{
   const config=normalize(preview||visual.roundedDesign||{});
   document.body.classList.add('cm-design');
   if(!tag){tag=document.createElement('style');tag.id='caressanoRoundedRules';document.head.appendChild(tag)}
-  tag.textContent=`:root{--rd-bg:${config.pageBg};--rd-text:${config.pageText};--rd-nav:${config.navBg};--rd-nav-text:${config.navText};--rd-card:${config.cardBg};--rd-card-text:${config.cardText};--rd-border:${config.borderColor};--rd-radius:${config.radius}px;--rd-gap:${config.gap}px;--rd-news:${config.newsBg};--rd-news-text:${config.newsText};--rd-about:${config.aboutBg};--rd-about-text:${config.aboutText};--rd-cta:${config.ctaBg};--rd-cta-text:${config.ctaText};--rd-button:${config.buttonBg};--rd-button-text:${config.buttonText};--rd-profile-button:${config.profileButtonBg};--rd-profile-button-text:${config.profileButtonText}}\n`+textRules(config);
+  tag.textContent=`:root{--rd-bg:${config.pageBg};--rd-text:${config.pageText};--rd-nav:${config.navBg};--rd-nav-text:${config.navText};--rd-card:${config.cardBg};--rd-card-text:${config.cardText};--rd-border:${config.borderColor};--rd-radius:${config.radius}px;--rd-gap:${config.gap}px;--rd-news:${config.newsBg};--rd-news-text:${config.newsText};--rd-about:${config.aboutBg};--rd-about-text:${config.aboutText};--rd-cta:${config.ctaBg};--rd-cta-text:${config.ctaText};--rd-button:${config.buttonBg};--rd-button-text:${config.buttonText};--rd-profile-button:${config.profileButtonBg};--rd-profile-button-text:${config.profileButtonText};--rd-mobile-hero:${config.mobileHeroVh}svh;--rd-mobile-banner-height:${config.mobileBannerVh}svh;--rd-mobile-banner-width:${config.mobileBannerWidth}vw;--rd-mobile-banner-radius:${config.mobileBannerRadius}px}\n`+textRules(config);
   scheduleHeader();
   const data=getData();
   document.querySelectorAll('.model-card[data-model-id]').forEach(card=>{const model=data.models.find(m=>m.id===card.dataset.modelId);const photo=card.querySelector('.model-photo');if(photo)imageAspect(photo,model?.photoAspect,config.modelAspect,model?.photoFit||config.photoFit)});

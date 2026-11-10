@@ -141,3 +141,13 @@ body.cm-design{--rd-header-bg:#dededb}
 #frameStage{width:100%;max-height:none;position:relative;border-radius:18px;border:1px solid #777;background-repeat:no-repeat;cursor:crosshair;overflow:hidden}#frameFocus{position:absolute;transform:translate(-50%,-50%);width:20px;height:20px;border:2px solid white;box-shadow:0 0 0 1px black;border-radius:50%;pointer-events:none;background:#0003}
 #framingEditor .framing-presets{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}#frameWarning{border-left:3px solid #777;padding-left:12px}#framingEditor footer{display:flex;gap:12px;flex-wrap:wrap;border-top:1px solid #ccc;padding-top:20px}#framingEditor #frameSave{background:#111;color:#fff}#framingEditor output{font-size:12px}
 @media(max-width:700px){#framingEditor{padding:18px}#framingEditor .framing-body{grid-template-columns:1fr}#frameStage{width:min(100%,340px);margin:auto}}
+/* Phone home: balanced hero and larger rounded moving photographs.
+   Match the legacy ID selectors so their square-corner rule cannot win. */
+@media(max-width:700px){
+ body.cm-design.cm-design.v5-home.v5-clean .clean-hero{height:clamp(320px,var(--rd-mobile-hero,58svh),560px)!important;min-height:320px!important;max-height:560px!important}
+ body.cm-design.cm-design.v5-home.v5-clean .clean-lockup{top:54%!important}
+ body.cm-design.cm-design.v5-home.v5-clean #premiumReel:not([hidden]){height:clamp(220px,var(--rd-mobile-banner-height,32svh),320px)!important;min-height:220px!important;max-height:320px!important;margin:20px 0!important;border-radius:0!important;overflow:hidden!important}
+ body.cm-design.v5-home.v5-clean #premiumReel .premium-reel-track{height:100%!important;align-items:stretch!important;gap:12px!important}
+ body.cm-design.v5-home.v5-clean #premiumReel .premium-reel-item{width:clamp(150px,var(--rd-mobile-banner-width,46vw),250px)!important;min-width:150px!important;height:100%!important;aspect-ratio:auto!important;border-radius:var(--rd-mobile-banner-radius,28px)!important;overflow:hidden!important;clip-path:inset(0 round var(--rd-mobile-banner-radius,28px))!important;flex-shrink:0!important}
+ body.cm-design.v5-home.v5-clean #premiumReel .premium-reel-item img,body.cm-design.v5-home.v5-clean #premiumReel .premium-reel-item video{width:100%!important;height:100%!important;display:block!important;border-radius:inherit!important;object-fit:var(--rd-fit,cover)!important}
+}
