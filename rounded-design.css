@@ -105,3 +105,39 @@ body.cm-design.rd-header-over-light .v5-link::before{background:linear-gradient(
 .admin-gallery-order{display:flex;gap:6px;padding:8px;position:relative;z-index:5}.admin-gallery-order button{position:static!important;inset:auto!important;flex:1;width:auto!important;height:auto!important;min-height:36px!important;padding:8px 5px!important;background:#eee!important;color:#111!important;border:1px solid #aaa!important;font-size:10px!important;cursor:pointer}.admin-gallery-order button:disabled{opacity:.3;cursor:default}.admin-gallery-order button:focus-visible{outline:2px solid #fff;outline-offset:2px}
 .admin-media-edit>i,.admin-media-edit>video{position:relative!important;inset:auto!important;display:block!important;flex:0 0 165px!important;width:100%!important;background-position:center!important;background-size:cover!important}.admin-media-edit>small{position:static!important;display:block!important;margin:0 8px;padding:5px!important}.admin-gallery-order{flex-shrink:0}
 .admin-gallery-mini.admin-gallery-editable{height:360px!important;max-height:360px!important;overflow-y:auto!important;align-items:flex-start!important}
+/* Mobile keeps the original composition, with the new rounded finish. Desktop stays unchanged. */
+body.cm-design{--rd-header-bg:#dededb}
+@media(max-width:700px){
+ body.cm-design.cm-design .compact-models .models-grid{gap:6px!important}
+ body.cm-design.cm-design .compact-models .model-card{flex:0 0 calc((100% - 18px)/4)!important;border-radius:min(var(--rd-radius),16px)!important}
+ body.cm-design.cm-design .model-photo:not(.rd-aspect){height:34vw!important;min-height:118px!important;max-height:180px!important}
+ body.cm-design.cm-design .model-meta{padding:10px 3px 12px!important;min-height:70px!important}
+ body.cm-design.cm-design.cm-design .model-meta h3{font-size:clamp(11px,3.2vw,17px)!important;line-height:1.1!important;overflow-wrap:anywhere!important;margin:7px 0!important}
+ body.cm-design.cm-design.cm-design .model-meta>span,body.cm-design.cm-design.cm-design .model-meta>small{font-size:6px!important;letter-spacing:.06em!important}
+ body.cm-design.cm-design .profile-hero{display:block!important}
+ body.cm-design.cm-design .profile-main-photo:not(.rd-aspect){height:min(var(--profile-h,720px),125vw)!important;min-height:420px!important}
+ body.cm-design.cm-design .profile-copy{padding:36px 5vw 40px!important}
+ body.cm-design.cm-design.cm-design .profile-copy h1{font-size:clamp(38px,10vw,54px)!important;line-height:1.05!important;margin:16px 0 30px!important}
+ body.cm-design.cm-design .profile-measures{font-size:11px!important;line-height:1.55!important}
+ body.cm-design.cm-design .portfolio-grid{display:flex!important;grid-template-columns:none!important;overflow-x:auto!important;overflow-y:hidden!important;gap:10px!important;padding:0 5vw 10px!important;scroll-snap-type:x mandatory!important}
+ body.cm-design.cm-design .gallery-photo.portfolio-choice,body.cm-design.cm-design .gallery-video.portfolio-choice{flex:0 0 78vw!important;width:78vw!important;max-width:78vw!important;scroll-snap-align:center!important}
+ body.cm-design.cm-design .gallery-photo.portfolio-choice:not(.rd-aspect){height:108vw!important;min-height:0!important}
+ body.cm-design.cm-design .models-contact,body.cm-design.cm-design .booking{grid-template-columns:1fr!important;padding:28px 22px!important}
+ body.cm-design.cm-design .nosotros-grid{display:block!important}
+ body.cm-design.cm-design .nosotros-photos{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important}
+ body.cm-design.cm-design .news-section-shell{grid-template-columns:1fr!important}
+ body.cm-design.cm-design .news-represent-inner{padding:34px 18px!important;min-height:0!important}
+ body.cm-design.cm-design .news-feature-media:not(.rd-aspect){height:34svh!important;min-height:180px!important}
+ body.cm-design.cm-design .premium-reel{height:22svh!important;min-height:150px!important;max-height:210px!important;margin:20px 0!important}
+ body.cm-design.cm-design .premium-reel-item{width:28vw!important;min-width:96px!important;height:100%!important;aspect-ratio:auto!important;border-radius:min(var(--rd-radius),18px)!important}
+}
+.framing-launch{position:static!important;width:auto!important;min-height:38px!important;margin:10px 8px!important;padding:10px!important;font-size:10px!important;white-space:normal!important}
+#framingEditor{width:min(960px,95vw);max-height:92dvh;overflow:auto;padding:24px;border:1px solid #aaa;border-radius:20px;background:#f4f3ef;color:#111;box-shadow:0 24px 80px #0009;font:14px/1.5 Arial,sans-serif}
+#framingEditor::backdrop{background:#000a;backdrop-filter:blur(4px)}
+#framingEditor header{display:flex;justify-content:space-between;gap:20px}#framingEditor h2{font:28px/1.15 Georgia,serif;margin:0 0 12px}#framingEditor p{font-size:13px;line-height:1.5;color:#444}
+#framingEditor button{position:static;border:1px solid #999;border-radius:8px;background:#fff;color:#111;padding:12px;min-height:42px;font:11px Arial;cursor:pointer;white-space:normal}#framingEditor button:focus-visible,#framingEditor input:focus-visible,#framingEditor select:focus-visible{outline:2px solid #333;outline-offset:3px}
+#frameClose{align-self:start}#framingEditor .framing-body{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:28px;margin:18px 0}#framingEditor section{min-width:0}#framingEditor label{display:grid;gap:7px;margin:0 0 14px;font:12px/1.4 Arial;color:#111;letter-spacing:0;text-transform:none}
+#framingEditor select{padding:12px;width:100%;border:1px solid #aaa;background:#fff;color:#111;font-size:13px}#framingEditor input[type=range]{width:100%;accent-color:#333}#framingEditor input[type=color]{width:80px;height:38px}#framingEditor #frameInheritLabel{display:flex;align-items:center}#framingEditor #frameInheritLabel[hidden]{display:none}
+#frameStage{width:100%;max-height:none;position:relative;border-radius:18px;border:1px solid #777;background-repeat:no-repeat;cursor:crosshair;overflow:hidden}#frameFocus{position:absolute;transform:translate(-50%,-50%);width:20px;height:20px;border:2px solid white;box-shadow:0 0 0 1px black;border-radius:50%;pointer-events:none;background:#0003}
+#framingEditor .framing-presets{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}#frameWarning{border-left:3px solid #777;padding-left:12px}#framingEditor footer{display:flex;gap:12px;flex-wrap:wrap;border-top:1px solid #ccc;padding-top:20px}#framingEditor #frameSave{background:#111;color:#fff}#framingEditor output{font-size:12px}
+@media(max-width:700px){#framingEditor{padding:18px}#framingEditor .framing-body{grid-template-columns:1fr}#frameStage{width:min(100%,340px);margin:auto}}

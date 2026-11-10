@@ -1,4 +1,4 @@
-# Caressano Models — versión final 07/11/2026
+# Caressano Models — actualización móvil y encuadres 09/11/2026
 
 ## Antes de subir
 Descargá un backup desde el panel actual y conservá la versión anterior del proyecto. No borres datos del navegador, fotografías ni tablas de Supabase.
@@ -29,9 +29,29 @@ Los botones de WhatsApp comparten el número configurado en Contacto.
 Si aparece un error, conservá los datos y el mensaje; no limpies el almacenamiento ni restaures un backup sin revisarlo.
 
 ## Cambios incluidos
-Diseño redondeado, secciones y logo originales, convocatoria blanca con botón negro y letras blancas, sin el título Presencia/Identidad, portada animada configurable, encabezado con una sola cápsula de vidrio, dos tarjetas por pantalla en teléfono, controles de apariencia y formato, orden de fotos y videos por modelo.
+Diseño redondeado, secciones y logo originales, convocatoria blanca con botón negro y letras blancas, sin el título Presencia/Identidad, portada animada configurable, encabezado con una sola cápsula de vidrio, proporciones originales en teléfono y portfolio en carrusel lateral, controles de apariencia y formato, orden de fotos y videos por modelo.
 Se conservan IndexedDB, recuperación de cambios pendientes, fotografías originales sin recomprimir y publicación por Supabase Storage con enlaces en el JSON.
 
 ## Validación
 Las pruebas de almacenamiento, publicación simulada, carga de medios, animación y orden del portfolio están en tests/. Se ejecutan con Node: node --test tests/*.cjs
 El nuevo orden se comprobó también en la prueba local: antes/después, recarga del panel y lectura del perfil público. La producción no fue modificada durante esta preparación.
+
+## Actualización del 09/11: teléfono, tablet y editor avanzado
+Esta versión reemplaza al ZIP del 07/11. No necesita cambios de SQL ni reinstalar Supabase.
+En teléfono (hasta 700 px), el perfil recupera la foto grande arriba, información debajo y portfolio lateral con fotos de 78vw × 108vw; el listado vuelve a cuatro tarjetas por vista como en la versión anterior. Se mantienen las esquinas redondeadas y la estética nueva. La composición de computadora se conserva. Tablet se comprobó a 834 px sin desbordes.
+El encabezado usa gris claro #dededb y letras/logo oscuros sobre secciones oscuras. Sobre secciones claras conserva contraste inverso. Se mantiene el efecto de vidrio de los enlaces.
+
+### Encuadres avanzados
+En Modelos → Editar hay un botón para la tarjeta, otro para el perfil y uno en cada foto del portfolio. También hay botones en las fotos de Nosotros, banner, Novedades y portada.
+El editor permite cambiar computadora, tablet o teléfono; heredar el ajuste de computadora o guardar uno propio; mostrar la foto completa o cubrir; elegir formato; cambiar posición, zoom y color del espacio libre; y elegir el punto de enfoque tocando la vista previa o con las flechas del teclado.
+Foto completa al 100% conserva todos los bordes del archivo. Cubrir y aumentar zoom pueden recortar: revisá la cara y los extremos antes de guardar. El panel indica las dimensiones originales de la imagen.
+Los ajustes avanzados tienen prioridad sobre los anteriores en esa foto. VOLVER AL ENCUADRE ANTERIOR quita únicamente el encuadre avanzado de esa foto; no borra la fotografía, su orden ni los controles previos. Cerrar el editor sin guardar descarta la propuesta.
+La vista previa usa proporciones de referencia por dispositivo. Comprobá el resultado final en la página y en las pantallas donde la vas a usar.
+Este editor es para fotografías; los videos conservan sus controles existentes.
+No se recomprime ni se reemplaza el archivo: se guardan metadatos de encuadre. Las fotos se pueden seguir ordenando con Antes/Después.
+
+### Comprobaciones
+Seis pruebas automáticas: encuadre por pantalla y proporciones contain/cover, orden de fotos, animación, almacenamiento, carga de medios y Supabase simulado.
+Comprobaciones visuales locales: perfil en 390 px y 834 px sin desbordes; carrusel lateral en teléfono; editor de foto completa, guardado y recarga; cambio de teléfono sin aplicar el encuadre a tablet; selección de foto dentro del perfil sin copiar un tamaño incorrecto.
+No se ha actualizado GitHub, Vercel ni la base de producción.
+Comparación de computadora a 1280 px con la versión anterior: foto principal 596,03 × 720 px y foto de galería 584,55 × 520 px, mismas posiciones y columnas. Fotografías incluidas verificadas byte por byte sin cambios.

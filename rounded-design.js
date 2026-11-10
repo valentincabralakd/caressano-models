@@ -5,9 +5,9 @@ globalThis.CaressanoRounded=(()=>{
  const targets=[
  ['nav','Encabezado · enlaces','.v5-nav .v5-link',11,10],['hero','Portada · CARESSANO','.clean-brand',150,48],['heroSub','Portada · MODELS AGENCY','.clean-subtitle',12,8],['heroValues','Portada · valores','.clean-values',13,11],
  ['newsLabel','Novedades · etiqueta','.v5-represent-kicker',11,10],['newsTitle','Novedades · títulos','.news-represent-item h2',64,30],['newsBody','Novedades · descripciones','.news-represent-item p',16,13],['newsLink','Novedades · botones','.news-represent-link',12,11],['newsMedia','Novedades · leyenda de foto','#newsFeatureMedia span',12,10],
- ['introLabel','Modelos · etiqueta de introducción','.models-intro .kicker',11,10],['introTitle','Modelos · título de introducción','.models-intro h1',88,36],['introAccent','Modelos · acento del título','.models-intro h1 em',88,36],['introBody','Modelos · descripción','.models-intro>p',16,13],['boardLabel','Modelos · OUR BOARD','.compact-models .kicker',11,10],['boardTitle','Modelos · título del listado','.compact-models .section-head h2',72,38],['boardCount','Modelos · cantidad','#modelCount',10,9],['cardName','Tarjetas · nombres','.model-meta h3',28,16],['cardCategory','Tarjetas · categorías','.model-meta>span',10,8],['cardLink','Tarjetas · ver perfil','.model-meta>small',10,8],
+ ['introLabel','Modelos · etiqueta de introducción','.models-intro .kicker',11,10],['introTitle','Modelos · título de introducción','.models-intro h1',88,36],['introAccent','Modelos · acento del título','.models-intro h1 em',88,36],['introBody','Modelos · descripción','.models-intro>p',16,13],['boardLabel','Modelos · OUR BOARD','.compact-models .kicker',11,10],['boardTitle','Modelos · título del listado','.compact-models .section-head h2',72,38],['boardCount','Modelos · cantidad','#modelCount',10,9],['cardName','Tarjetas · nombres','.model-meta h3',28,12],['cardCategory','Tarjetas · categorías','.model-meta>span',10,8],['cardLink','Tarjetas · ver perfil','.model-meta>small',10,8],
  ['castingLabel','Convocatoria · etiqueta','.models-contact .kicker',11,10],['castingTitle','Convocatoria · título','.casting-title',52,27],['castingBody','Convocatoria · descripción','.models-contact>div>p:not(.kicker)',15,12],['castingDetails','Convocatoria · datos','.models-contact .mini-contact',11,10],['castingButton','Convocatoria · botón','.models-contact a.button',12,10],
- ['profileName','Perfil · nombre','.profile-copy h1',66,27],['profileCategory','Perfil · categoría','.profile-copy .kicker',11,9],['profileBio','Perfil · biografía','.profile-bio',16,12],['profileStats','Perfil · medidas','.profile-measures',13,10],['profileButton','Perfil · solicitar portfolio','.profile-copy .button',12,10],['profileBooking','Perfil · invitación a trabajar','.booking p',30,19],['profileContact','Perfil · botón de contacto','.booking .button',12,10],['profileBack','Perfil · volver','.rd-profile-back',11,10],
+ ['profileName','Perfil · nombre','.profile-copy h1',66,42],['profileCategory','Perfil · categoría','.profile-copy .kicker',11,9],['profileBio','Perfil · biografía','.profile-bio',16,12],['profileStats','Perfil · medidas','.profile-measures',13,10],['profileButton','Perfil · solicitar portfolio','.profile-copy .button',12,10],['profileBooking','Perfil · invitación a trabajar','.booking p',30,19],['profileContact','Perfil · botón de contacto','.booking .button',12,10],['profileBack','Perfil · volver','.rd-profile-back',11,10],
  ['aboutLabel','Nosotros · etiqueta','.nosotros-kicker',11,10],['aboutTitle','Nosotros · título','.nosotros-intro h1',100,42],['aboutLead','Nosotros · introducción','.nosotros-lead',20,14],['aboutHeads','Nosotros · títulos de bloques','.nosotros-block h2',40,26],['aboutBody','Nosotros · textos de bloques','.nosotros-block p,.nosotros-block li',16,13],['aboutNumbers','Nosotros · números','.nosotros-block .block-number',12,10],
  ['drawerTitle','Contacto · título','.v5-drawer h2',48,34],['drawerHeads','Contacto · etiquetas','.v5-drawer h3',12,11],['drawerLinks','Contacto · enlaces','.v5-drawer a',15,12],['footer','Pie de página · textos','.models-footer,body.profile-page>footer',10,9]
  ];
@@ -57,6 +57,7 @@ globalThis.CaressanoRounded=(()=>{
   document.querySelectorAll('.nosotros-photo-slot').forEach((el,i)=>imageAspect(el,about.photos?.[i]?.aspect,config.aboutAspect,about.photos?.[i]?.fit||config.photoFit));
   document.querySelectorAll('.premium-reel-item').forEach(el=>imageAspect(el,el.dataset.aspect,config.bannerAspect,config.photoFit));
   const news=document.getElementById('newsFeatureMedia');if(news)imageAspect(news,null,config.newsAspect,config.photoFit);
+  globalThis.CaressanoFraming?.apply();
  }
  window.addEventListener('message',event=>{
   if(window.parent===window||event.source!==window.parent||event.origin!==location.origin||!new URLSearchParams(location.search).has('caressanoDesignPreview'))return;
@@ -78,6 +79,7 @@ globalThis.CaressanoRounded=(()=>{
  window.addEventListener('scroll',scheduleHeader,{passive:true});window.addEventListener('resize',scheduleHeader);window.addEventListener('DOMContentLoaded',scheduleHeader);
  return{defaults,normalize,targets,ratios,apply};
 })();
+
 
 
 
