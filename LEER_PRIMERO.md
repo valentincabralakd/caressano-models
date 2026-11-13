@@ -63,3 +63,10 @@ En Diseño → Apariencia redondeada → Inicio en teléfono podés modificar al
 Se mantiene el editor avanzado por foto, su orden, el contraste del encabezado y la calidad original.
 Comprobaciones de esta corrección: siete pruebas automáticas aprobadas; vista a 390 px sin desborde, redondeado efectivo con recorte, portada más baja, banner más alto; tablet a 834 px sin desborde. Se probó guardar un radio distinto desde el panel y comprobarlo en la página, y se volvió a 28 px.
 No se modificó producción. Subí el contenido descomprimido en la misma carpeta del sitio, reemplazando los archivos con el mismo nombre y agregando los nuevos; no borres fotos ni datos de Supabase.
+
+## Versión 4: encaje y alineación de tarjetas en teléfono
+Incluye todas las funciones y correcciones de las versiones anteriores.
+Se corrige el doble redondeado de la tarjeta y su fotografía en anchos de hasta 700 px: el único recorte redondeado es el de la tarjeta exterior, y la foto ocupa todo el ancho interior. No se cambia el archivo de imagen ni el encuadre guardado.
+Las tarjetas se alinean desde arriba, mantienen la misma altura y ubican Ver perfil en la misma línea pese a diferencias en los nombres. Se desactiva el desplazamiento y zoom al tocar las tarjetas en teléfono, evitando estados de hover retenidos por el navegador móvil. La vista de computadora y tablet mayor a 700 px conserva sus estilos.
+Comprobación visual a 390 px: Ana Paula, Yohana, Victoria y Rosario con el mismo borde superior, altura y línea de Ver perfil; fotos cubriendo todo el ancho interior. Rosario estaba alineada en la copia de prueba antes de esta corrección; el bloqueo de elevación evita posibles desplazamientos al tocar.
+Usá el contenido de ESTE ZIP para la actualización. No hace falta aplicar primero los ZIP anteriores.
